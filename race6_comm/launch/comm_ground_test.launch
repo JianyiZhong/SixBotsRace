@@ -1,0 +1,108 @@
+<launch>
+    <!-- =================================================================
+         race6_comm / launch/comm_ground_test.launch
+         地面双机（或多机）通信 + 时间同步联调一键启动。
+         ★ 桨叶卸下、不飞、不上电到电机。★
+
+         每台飞机各起一份（两台飞机是两台独立主机，各自有自己的 ROS master）：
+
+           # 0 号机
+           roslaunch race6_comm comm_ground_test.launch drone_id:=0 peers:=1
+           # 1 号机
+           roslaunch race6_comm comm_ground_test.launch drone_id:=1 peers:=0
+
+         起来之后看四样东西（判据见 README「预期结果」一节）：
+           1) multibotnet 的配置表 + "receiving data from network"
+           2) race6_time_sync 的 offset / rtt 表
+           3) race6_comm_test 的丢包 / 延迟表
+           4) race6_mintraj_test 的 dt（= FSM 判据）表
+         ================================================================= -->
+
+    <arg name="drone_id" default="0"/>
+    <arg name="config"
+         default="$(find race6_comm)/config/ground2/drone_$(arg drone_id).yaml"/>
+    <arg name="log_level" default="info"/>
+
+    <!-- 期望对端，逗号分隔，仅用于打印提示和「该来的没来」判定 -->
+    <arg name="peers" default=""/>
+    <!-- 各测试脚本跑多久自动出最终结论（秒） -->
+    <arg name="test_duration" default="30.0"/>
+
+    <!-- 开关 -->
+    <arg name="run_time_sync" default="true"/>
+    <arg name="run_comm_test" default="true"/>
+    <arg name="run_mintraj_test" default="true"/>
+    <!-- ★ 飞行中绝对不要开 apply ★ 只在桨叶卸下、地面、且 planner 未启动时用 -->
+    <arg name="time_sync_apply" default="false"/>
+
+    <!-- 速率 -->
+    <arg name="rate_comm" default="5.0"/>
+    <arg name="rate_mintraj" default="2.0"/>
+    <arg name="rate_time_sync" default="1.0"/>
+
+    <!-- 判定阈值 -->
+    <arg name="warn_offset" default="0.05"/>   <!-- 50 ms：超过就 WARN -->
+    <arg name="fatal_offset" default="0.25"/>  <!-- 250 ms：FSM 告警线 -->
+    <arg name="loss_warn" default="0.05"/>     <!-- 5% -->
+    <arg name="lat_warn" default="0.05"/>      <!-- 50 ms -->
+
+    <!-- ============================================================
+         1. Multibotnet 通讯节点（唯一的跨机搬运工）
+         ============================================================ -->
+    <node pkg="multibotnet" type="multibotnet_topic_node"
+          name="multibotnet_drone$(arg drone_id)" output="screen" respawn="false">
+        <param name="config_file" value="$(arg config)"/>
+        <param name="log_level" value="$(arg log_level)"/>
+    </node>
+
+    <param name="race6/drone_id" value="$(arg drone_id)" type="int"/>
+
+    <!-- ============================================================
+         2. 时间同步（只测量；要校时请单独 rosrun 加 --apply）
+         ============================================================ -->
+    <node if="$(arg run_time_sync)"
+          pkg="race6_comm" type="race6_time_sync.py"
+          name="race6_time_sync" output="screen">
+        <param name="self_id" value="$(arg drone_id)"/>
+        <param name="peers" value="$(arg peers)"/>
+        <param name="rate" value="$(arg rate_time_sync)"/>
+        <param name="warn_offset" value="$(arg warn_offset)"/>
+        <param name="fatal_offset" value="$(arg fatal_offset)"/>
+        <param name="report_period" value="5.0"/>
+        <param name="apply" value="$(arg time_sync_apply)"/>
+        <param name="master_id" value="-1"/>
+        <param name="duration" value="0.0"/>
+    </node>
+
+    <!-- ============================================================
+         3. 通用链路收发验证（std_msgs/Float64MultiArray）
+         ============================================================ -->
+    <node if="$(arg run_comm_test)"
+          pkg="race6_comm" type="race6_comm_test.py"
+          name="race6_comm_test" output="screen">
+        <param name="self_id" value="$(arg drone_id)"/>
+        <param name="peers" value="$(arg peers)"/>
+        <param name="rate" value="$(arg rate_comm)"/>
+        <param name="payload" value="8"/>
+        <param name="duration" value="$(arg test_duration)"/>
+        <param name="report_period" value="1.0"/>
+        <param name="loss_warn" value="$(arg loss_warn)"/>
+        <param name="lat_warn" value="$(arg lat_warn)"/>
+    </node>
+
+    <!-- ============================================================
+         4. 竞赛主通道验证（controller_msgs/MinTraj，就是 planner 用的那条）
+         ============================================================ -->
+    <node if="$(arg run_mintraj_test)"
+          pkg="race6_comm" type="race6_mintraj_test.py"
+          name="race6_mintraj_test" output="screen">
+        <param name="self_id" value="$(arg drone_id)"/>
+        <param name="peers" value="$(arg peers)"/>
+        <param name="rate" value="$(arg rate_mintraj)"/>
+        <param name="duration" value="$(arg test_duration)"/>
+        <param name="report_period" value="2.0"/>
+        <param name="loss_warn" value="$(arg loss_warn)"/>
+        <param name="fsm_warn_dt" value="$(arg fatal_offset)"/>
+        <param name="fsm_fatal_dt" value="10.0"/>
+    </node>
+</launch>

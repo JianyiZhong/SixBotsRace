@@ -1,0 +1,101 @@
+# =====================================================================
+# race6_comm / config/selftest/loopback.yaml
+#
+# 【用途】在【一台电脑上】先把整套脚本跑通，不碰飞机。
+#         工作原理：让 Multibotnet 的「接收」连回「自己绑的端口」，
+#         于是本机发出的报文绕一圈又回到本机 —— 完整的
+#         序列化 / ZMQ / 反序列化 / 重新发布 全流程都真实走了一遍。
+#
+#         然后在这一个 ROS master 上同时起两个脚本实例
+#         （self_id=0 和 self_id=1），它们靠报文里的 id 互相区分，
+#         就等价于两台飞机在互相收发。
+#         启动：roslaunch race6_comm comm_selftest.launch
+#
+# 【为什么能连回自己而不炸】★ 关键 ★
+#   发用 _tx、收用 _rx，两个名字不同：
+#     Multibotnet 的发送话题是本地订阅（topic_manager.cpp:411-420）
+#     Multibotnet 的接收话题是本地发布（topic_manager.cpp:717-733）
+#   如果收发同名，收进来的会被再广播出去 → 自我复制 → 广播风暴。
+#   实验室代码也是这么分的（/broadcast_traj_from_planner 与
+#   /broadcast_traj_to_planner，advanced_param_swarm.xml:50-51）。
+#
+# 【与真机配置的区别】
+#   1) connect_address 从 droneN 换成 localhost
+#   2) 里程计的回环话题叫 /mbn/loopback_odom（真机上是 /mbn/droneN_odom）
+#
+# 【注意】PC 上没有 mavros，所以 /mavros/local_position/odom 这条通道
+#   在本机自测时不会有数据 —— 它只是"通了但没车跑"。
+#   想在 PC 上验证这条通道，另开一个终端手工喂数据（见 README §5.1）：
+#     rostopic pub -r 20 /mavros/local_position/odom nav_msgs/Odometry \
+#       '{header: {frame_id: "world"}, pose: {pose: {position: {x: 1.0, z: 1.0}, orientation: {w: 1.0}}}}'
+#   然后 rosrun ... 或 rostopic echo /mbn/loopback_odom 看有没有回来。
+# =====================================================================
+
+IP:
+  self: '*'                          # 绑定所有网卡
+  localhost: '127.0.0.1'
+
+send_topics:
+  - topic: /broadcast_traj_from_planner
+    message_type: controller_msgs/MinTraj
+    max_frequency: 20
+    bind_address: self
+    port: 4001
+    compression: false               # 自测时关压缩，与真机 ground2 配置保持一致
+
+  - topic: /mavros/local_position/odom
+    message_type: nav_msgs/Odometry
+    max_frequency: 20
+    bind_address: self
+    port: 4101
+    compression: false
+
+  - topic: /race6/timesync_tx
+    message_type: std_msgs/Float64MultiArray
+    max_frequency: 20
+    bind_address: self
+    port: 4201
+    compression: false
+
+  - topic: /race6/comm_test_tx
+    message_type: std_msgs/Float64MultiArray
+    max_frequency: 20
+    bind_address: self
+    port: 4401
+    compression: false
+
+recv_topics:
+  # 连回本机同一端口：报文绕一圈回到自己，等价于「对端」
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: localhost
+    port: 4001
+
+  - topic: /mbn/loopback_odom
+    message_type: nav_msgs/Odometry
+    connect_address: localhost
+    port: 4101
+
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: localhost
+    port: 4201
+
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: localhost
+    port: 4401
+
+advanced:
+  compression:
+    enable: false
+    type: lz4
+    level: 6
+  thread_pool:
+    size: 2
+  performance:
+    enable_statistics: true
+    statistics_interval_ms: 5000
+  retry:
+    max_retries: -1
+    interval_ms: 1000

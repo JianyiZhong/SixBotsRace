@@ -1,0 +1,35 @@
+<launch>
+    <!-- =================================================================
+         race6_comm / launch/multibotnet_node.launch
+         只起一个 Multibotnet 通讯节点（不带任何测试脚本）。
+         用于：和实验室自己的 planner launch 一起用，或者单独调通信。
+
+         用法：
+           roslaunch race6_comm multibotnet_node.launch drone_id:=0
+           roslaunch race6_comm multibotnet_node.launch drone_id:=1 \
+                    config:=$(find race6_comm)/config/ground2/drone_1.yaml
+
+         ⚠️ config 的默认值会按 drone_id 自动选 ground2/drone_<id>.yaml。
+         ⚠️ 换到竞赛配置时显式指定 config，例如：
+              config:=$(find race6_comm)/config/race6/drone_3.yaml
+         ================================================================= -->
+
+    <arg name="drone_id" default="0"/>
+    <arg name="config"
+         default="$(find race6_comm)/config/ground2/drone_$(arg drone_id).yaml"/>
+    <arg name="log_level" default="info"/>
+
+    <!-- Multibotnet 节点
+         respawn 故意设为 false：配置写错时它会立刻退出（exit 1），
+         这样错误一眼可见；设成 true 会变成无声的无限重启，反而难查。
+         竞赛时想自动重连可以改成 true（网络抖动时有用）。 -->
+    <node pkg="multibotnet" type="multibotnet_topic_node"
+          name="multibotnet_drone$(arg drone_id)"
+          output="screen" respawn="false" required="false">
+        <param name="config_file" value="$(arg config)"/>
+        <param name="log_level" value="$(arg log_level)"/>
+    </node>
+
+    <!-- 把本机编号放到参数服务器上，方便别的节点/脚本读取 -->
+    <param name="race6/drone_id" value="$(arg drone_id)" type="int"/>
+</launch>

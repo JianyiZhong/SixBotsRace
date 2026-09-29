@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>race6_comm</name>
+  <version>0.1.0</version>
+  <description>
+    六机协作竞赛（3 组 × 2 机）多机通讯与时间同步模块。
+    基于 Multibotnet 传输 EGO-Planner 的 controller_msgs/MinTraj 轨迹广播，
+    并提供多机时间同步、链路收发验证、MinTraj 通道端到端验证脚本。
+    本包不改动任何实验室既有代码（ego_planner / MLMapping / FAST_LIO 均为只读引用）。
+  </description>
+
+  <maintainer email="zjy@example.com">zjy</maintainer>
+  <license>BSD</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>controller_msgs</depend>
+
+  <exec_depend>multibotnet</exec_depend>
+</package>

@@ -1,0 +1,156 @@
+# =====================================================================
+# race6_comm / config/ground2/drone_0.yaml
+#
+# 【用途】真机双机「通信 + 时间同步 + 里程计转发」联调 —— 0 号机（本机）
+#         对端配置：同目录 drone_1.yaml，两份只差「接收哪台」。
+#         ★ 桨叶卸下，或者已稳定悬停，都可以用这份配置。★
+#
+# 【★ 最重要的一条设计约束：发和收必须是两个不同的话题名 ★】
+#   Multibotnet 的「发送话题」= 本地订阅，「接收话题」= 本地发布
+#   （topic_manager.cpp:411-420 建订阅 / 717-733 建发布）。
+#   如果收发同名，收进来的报文会被发送话题再订阅一次、又广播出去，
+#   报文在网络里自我复制 → 广播风暴，几秒内打满无线网络。
+#   实验室代码正是这么设计的（advanced_param_swarm.xml:50-51）：
+#       发 /broadcast_traj_from_planner
+#       收 /broadcast_traj_to_planner
+#   本包的四条通道全部遵守这条：
+#       轨迹规划  发 /broadcast_traj_from_planner  收 /broadcast_traj_to_planner
+#       里程计    发 /mavros/local_position/odom   收 /mbn/droneN_odom
+#       时间同步  发 /race6/timesync_tx            收 /race6/timesync_rx
+#       链路测试  发 /race6/comm_test_tx           收 /race6/comm_test_rx
+#
+# 【端口方案：同端口、不同主机】
+#   两台飞机是两台独立主机，各自绑自己的网卡，
+#   所以【所有飞机用完全相同的端口号】不会冲突。
+#   好处：配置里没有 4001+id 这种算术，改 IP 只改一处，不会算错。
+#   （实验室 race3 的 Multibotnet 配置用 4001/4002/4003 错开端口，
+#     那是因为他们跑在【单机三机仿真】上，同一台主机必须错开。
+#     我们这次是真机、各自主机，所以固定端口更省心。）
+#
+#   端口分配（全竞赛统一）：
+#     4001  /broadcast_traj_from_planner  →  /broadcast_traj_to_planner
+#           controller_msgs/MinTraj      ← 竞赛主通道，名字由实验室 launch 定死
+#     4101  /mavros/local_position/odom   →  /mbn/droneN_odom
+#           nav_msgs/Odometry            ← 里程计，见下面「里程计到底有没有用」
+#     4201  /race6/timesync_tx            →  /race6/timesync_rx
+#           std_msgs/Float64MultiArray
+#     4401  /race6/comm_test_tx           →  /race6/comm_test_rx
+#           std_msgs/Float64MultiArray
+#
+# 【里程计到底有没有用？——先看清楚，别指望它做避碰】
+#   ego_planner 本身【不消费】别机里程计：FSM 只订阅自己的 odom_world，
+#   预测别机位置用的是别机的 MinTraj（ego_replan_fsm.cpp:546-550）。
+#   所以转发里程计的作用是：
+#     * 地面站 / 各机 RViz 里能看到全部飞机的位置（/mbn/droneN_odom）
+#     * 你们自己写的监控、评分统计、录像叠加可以用
+#   它【不参与】协同避碰。别机轨迹才是避碰依据。
+#   代价很小：Odometry 约 300 字节，20 Hz 下每对端约 6 kB/s，5 个对端 30 kB/s。
+#
+# 【对接的实验室最新代码（SixBotsRace）】
+#   ⚠️ 消息类型写 controller_msgs/MinTraj（斜杠），不是点号。
+#   ⚠️ 收发两端都要编译并 source 了 controller_msgs：md5sum 随消息过网络
+#      （multibotnet/src/managers/topic_manager.cpp:455）。
+#
+# 【★ 上真机前必须改】IP 段里的 drone0 / drone1 换成两台飞机的真实 IP。
+#   ip -4 addr show | grep -w inet        # 查本机 IP
+#   ping -c 3 <对端IP>                    # 测连通
+#   本文件里的 192.168.152.10x 是【占位值】，不改一定跑不通。
+# =====================================================================
+
+IP:
+  self: '*'                          # 真机必须绑所有网卡；写 localhost 只能单机自测
+  localhost: '127.0.0.1'
+  drone0: '192.168.152.101'          # ← 占位：0 号机真实 IP
+  drone1: '192.168.152.102'          # ← 占位：1 号机真实 IP
+
+# ---------------------------------------------------------------
+# 发送：本机 → 网络
+#   config_parser.cpp:191-193 要求 send_topics 必须同时有
+#   max_frequency 和 bind_address，缺任何一个都会解析失败。
+# ---------------------------------------------------------------
+send_topics:
+  # 规划器轨迹广播（竞赛主通道）
+  - topic: /broadcast_traj_from_planner
+    message_type: controller_msgs/MinTraj
+    max_frequency: 20                # 重规划约 1~2 Hz；给到 20 留余量
+    bind_address: self
+    port: 4001
+    compression: false               # 首次联调先关压缩：MinTraj 只有几十~几百字节，
+                                     # 关掉可以少一个变量。带宽紧张时再改 true
+                                     # （实验室 race3 配置里就是 true）
+
+  # 里程计：让对端/地面站看到本机位置
+  - topic: /mavros/local_position/odom
+    message_type: nav_msgs/Odometry
+    max_frequency: 20                # mavros 一般 30~50 Hz，限到 20 省带宽
+    bind_address: self
+    port: 4101
+    compression: false
+
+  # 时间同步：REQ 与 RESP 都从这条 _tx 发出
+  - topic: /race6/timesync_tx
+    message_type: std_msgs/Float64MultiArray
+    max_frequency: 20
+    bind_address: self
+    port: 4201
+    compression: false               # 时间同步要最低延迟，绝不压缩
+
+  # 通用链路收发验证
+  - topic: /race6/comm_test_tx
+    message_type: std_msgs/Float64MultiArray
+    max_frequency: 20
+    bind_address: self
+    port: 4401
+    compression: false
+
+# ---------------------------------------------------------------
+# 接收：网络 → 本机
+#   recv_topics 必须写 connect_address（config_parser.cpp:196）。
+#   多台飞机的同一条通道可以全部发布到本机同一个 _rx 话题名上，
+#   由消费方自己按 id 过滤：
+#     planner   : ego_replan_fsm.cpp:1195-1197 按 msg->drone_id 过滤
+#     timesync  : scripts/race6_time_sync.py   按 origin_id/responder_id 过滤
+#     comm_test : scripts/race6_comm_test.py   按 sender_id 过滤
+#     里程计    : /mbn/droneN_odom 本身就带机号前缀，不用过滤
+# ---------------------------------------------------------------
+recv_topics:
+  # ---- 1 号机的轨迹 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone1
+    port: 4001
+
+  # ---- 1 号机的里程计（话题名带机号，直接就能用）----
+  - topic: /mbn/drone1_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone1
+    port: 4101
+
+  # ---- 1 号机的时间同步 ----
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone1
+    port: 4201
+
+  # ---- 1 号机的链路测试包 ----
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone1
+    port: 4401
+
+# ---------------------------------------------------------------
+# 高级配置（机载 Orange Pi 5 Pro，CPU 有限，尽量轻量）
+# ---------------------------------------------------------------
+advanced:
+  compression:
+    enable: false
+    type: lz4
+    level: 6
+  thread_pool:
+    size: 2                          # Orange Pi 上别开太多线程
+  performance:
+    enable_statistics: true
+    statistics_interval_ms: 5000     # 5 秒打一次收发统计，别刷屏
+  retry:
+    max_retries: -1                  # 无限重连（无线网络会抖）
+    interval_ms: 1000
