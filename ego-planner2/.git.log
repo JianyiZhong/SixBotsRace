@@ -1,0 +1,186 @@
+commit fc81600f0579c081aaf42920e9557e8823417f93
+Author: lioqio <liuqiang@visbot.com.cn>
+Date:   Sat Jan 11 12:32:42 2025 +0000
+
+    support  lidar min360
+
+commit a76a5db6b2f22fbcb4fc2c07f220daa634c0fb01
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Thu Jul 25 14:32:36 2024 +0800
+
+    enable z penalty.
+
+commit 29432dded20ed0344d8a21e523bfe78d46b90a58
+Author: lioqio <liuqiang@visbot.com.cn>
+Date:   Tue Jun 4 14:36:08 2024 +0000
+
+    gridmap support itof depth
+
+commit 343e0144b2ab88a7654aaa12b59efdee7ef6ebeb
+Author: lioqio <liuqiang@visbot.com.cn>
+Date:   Wed May 15 23:45:12 2024 +0000
+
+    support  intriCallback
+
+commit 18844490a424c32db7d8795264b3ffb56e5adfb1
+Merge: 36d115f 03dca69
+Author: lioqio <liuqiang@visbot.com.cn>
+Date:   Wed May 15 23:17:22 2024 +0000
+
+    Merge branch 'owl_itof' of https://gitee.com/visbot/ego-planner2 into owl_itof
+
+commit 03dca69ff05ce8b4557cda571a981bf5bd35bacc
+Author: lioqio <liuqiang@visbot.com.cn>
+Date:   Wed May 15 06:47:17 2024 +0000
+
+    update src/planner/plan_env/include/plan_env/grid_map.h.
+    setDepthIntrinsic外部可调用
+    
+    Signed-off-by: lioqio <liuqiang@visbot.com.cn>
+
+commit 36d115fca51d412e64566c31cc35a045c6cd398e
+Merge: c075fd1 b0473f8
+Author: lioqio <liuqiang@visbot.com.cn>
+Date:   Wed May 15 05:55:10 2024 +0000
+
+    !1 自动获得深度内参
+    Merge pull request !1 from lioqio/owl
+
+commit b0473f89a51dfae27a26eab65fc417c7452006b7
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Wed May 15 13:50:31 2024 +0800
+
+    read depth intrinsic from /stereo_cam/depth_info.
+
+commit c075fd13c8d50c59a5950673f05b0d8fde46fd79
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Tue May 14 11:12:06 2024 +0800
+
+    set pose_type 2.
+    remove sequential_start limit.
+    set speed 0.5
+
+commit 3637db4e4c5f232b03d45cca9681fc09a3458a5d
+Author: lioqio <liuqiang@visbot.com.cn>
+Date:   Tue Sep 26 05:37:34 2023 +0000
+
+    remove  ros_proxy
+
+commit b23026d86730cf09a4792a78b50dfb9e15de8683
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Fri Sep 22 13:32:00 2023 +0800
+
+    add response for /move_base_simple/goal
+
+commit 086ddf13666bb1e01e03c00e441add76f488697a
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Thu Sep 21 17:10:59 2023 +0800
+
+    at drone, map /goal to /move_base_simple/goal.
+    and proxy it , if drone_id == -1.
+
+commit 33f1c547cca0e7eaf066bfe13d959f9a1055ccf6
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Wed Jul 26 10:15:40 2023 +0800
+
+    bf: flatsetpoint use /reference prefix.
+
+commit 82a0ae7b2ee78ea66a6dc88ec40099276711b699
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Wed Jul 26 09:31:56 2023 +0800
+
+    remove quadrotor.msg dependency.
+    remove drone_id prefix in owl_swarm.launch and ros_proxy_drone.launch.
+
+commit e66ad5cf9d49c1e683a58ffadb561fe6bc21d13f
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Sat Jul 15 11:22:16 2023 +0800
+
+    add SwarmMatrix msg in ros_porxy.
+
+commit b90706e50e1ecc6b1c16e75ab4b331ba02903455
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Wed May 17 11:48:09 2023 +0800
+
+    1. add initpose in ros_proxy.
+    2. set flag_depth_odom_timeout_ when it recovery.
+    3. mv MINCOTraj.msg to controller_msgs::MinTraj.msg.
+
+commit 03acccbaf1361ce2c36b8a87723ea7a81030d732
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Tue May 16 16:26:54 2023 +0800
+
+    bf: assign right i of pub_ msgs.
+
+commit fe880f73476a845fabc644abf9af14f4e022c34d
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Tue May 16 15:36:37 2023 +0800
+
+    add swarm_rviz in ros_proxy_commander.launch
+
+commit 7e51ed91f32448db64acaa311865c6ca0f5c4147
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Tue May 16 15:07:09 2023 +0800
+
+    bf for owl_swarm.launch
+
+commit 42f275b23f838de62a8b62213b342be6454087a3
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Tue May 16 14:52:45 2023 +0800
+
+    bf: make ros_proxy working in owl_swarm.
+
+commit 55297ca1003f089dbdf4cccc0e8a632e21b09937
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Tue May 16 11:51:12 2023 +0800
+
+    merge owl_test ros_proxy change.
+
+commit 64d92654fbd08de8b872a3bc785d3866b3b46a2d
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Sat May 13 20:58:02 2023 +0800
+
+    ego_planner2 swarm simulation works with px4/launch/visbot_swarm_owl.launch
+
+commit c3691213abf62fc5cc84f57a09337c9972b486a9
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Thu May 11 22:05:08 2023 +0800
+
+    bf: fix buf for coeffMatrix params.
+
+commit 90e0348a43a01aa13b9d02314873671f06e8ab7a
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Thu May 11 21:34:11 2023 +0800
+
+    remove unused files.
+    use ros_proxy replacing swarm_bridge for owl.
+
+commit 42de3cf2a48cf39bda33de6702839bb43abd4137
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Sun Apr 16 13:39:47 2023 +0800
+
+    bf. remap planning/cmd.
+
+commit 116931a421cac231e5b268ad30c24e96a0ef85a5
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Sun Apr 16 11:54:10 2023 +0800
+
+    remove rviz_plugins and selected_points_publisher, since ARM platform dosnot support gt/openGL.
+
+commit af4725020fd0a065f42cd927cf7e3c1a987c9019
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Sun Apr 16 10:22:38 2023 +0800
+
+    bf: use first version of calculateYaw.
+
+commit c6d67c714117cbdbe32ccd2e1f296b2634c94b60
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Sat Apr 15 20:37:15 2023 +0800
+
+    move to OWL captain stack.(not finished).
+
+commit 0da6ec42525ae3de1d5e1e50aaea64190277b1b7
+Author: Tiger Chen <tiger@visbot.com.cn>
+Date:   Fri Apr 7 10:17:09 2023 +0800
+
+    init version from EGO-Planner-v2.

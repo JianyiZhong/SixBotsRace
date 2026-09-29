@@ -1,0 +1,10 @@
+<library path="lib/libmlmapping">
+
+        <class name="mlmapping/MlMapNodeletClass" type="mlmapping_ns::MlMapNodeletClass"
+		base_class_type="nodelet::Nodelet">
+		<description>
+                        MlMapNodeletClass
+		</description>
+	</class>
+
+</library>
