@@ -1,0 +1,91 @@
+# =====================================================================
+# race6_comm / config/ground2/drone_1.yaml
+#
+# 【用途】真机双机「通信 + 时间同步 + 里程计转发」联调 —— 1 号机（本机）
+#
+# 与 drone_0.yaml 完全对称：端口号一模一样（同端口、不同主机方案），
+# 唯一区别是「接收列表里连谁」。
+#   本机 = 1 号机 → 接收 drone0
+#
+# ★ 发和收必须是两个不同的话题名（否则广播风暴），
+#   原因、以及「里程计其实不参与避碰」这两点都写在 drone_0.yaml 头部，务必先读。
+#
+#   端口（所有飞机相同，主机不同）：
+#     4001 轨迹  4101 里程计  4201 时间同步  4401 链路测试
+#
+# 【★ 上真机前必须改】drone0 / drone1 的真实 IP（与 drone_0.yaml 保持一致）。
+# =====================================================================
+
+IP:
+  self: '*'
+  localhost: '127.0.0.1'
+  drone0: '192.168.152.101'          # ← 占位：0 号机真实 IP
+  drone1: '192.168.152.102'          # ← 占位：1 号机真实 IP
+
+send_topics:
+  - topic: /broadcast_traj_from_planner
+    message_type: controller_msgs/MinTraj
+    max_frequency: 20
+    bind_address: self
+    port: 4001                       # 与 0 号机相同端口，但主机不同 → 不冲突
+    compression: false
+
+  - topic: /mavros/local_position/odom
+    message_type: nav_msgs/Odometry
+    max_frequency: 20
+    bind_address: self
+    port: 4101
+    compression: false
+
+  - topic: /race6/timesync_tx
+    message_type: std_msgs/Float64MultiArray
+    max_frequency: 20
+    bind_address: self
+    port: 4201
+    compression: false
+
+  - topic: /race6/comm_test_tx
+    message_type: std_msgs/Float64MultiArray
+    max_frequency: 20
+    bind_address: self
+    port: 4401
+    compression: false
+
+recv_topics:
+  # ---- 0 号机的轨迹 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone0          # ★ 本机是 1 号机 → 连 drone0
+    port: 4001
+
+  # ---- 0 号机的里程计 ----
+  - topic: /mbn/drone0_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone0          # ★
+    port: 4101
+
+  # ---- 0 号机的时间同步 ----
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone0          # ★
+    port: 4201
+
+  # ---- 0 号机的链路测试包 ----
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone0          # ★
+    port: 4401
+
+advanced:
+  compression:
+    enable: false
+    type: lz4
+    level: 6
+  thread_pool:
+    size: 2
+  performance:
+    enable_statistics: true
+    statistics_interval_ms: 5000
+  retry:
+    max_retries: -1
+    interval_ms: 1000

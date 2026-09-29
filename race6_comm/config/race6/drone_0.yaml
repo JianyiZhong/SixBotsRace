@@ -1,0 +1,170 @@
+# =====================================================================
+# race6_comm / config/race6/drone_0.yaml —— 6 机竞赛配置：0 号机（第 1 组）
+#
+# 【★ 最重要：发和收必须是两个不同的话题名 ★】
+#   Multibotnet 的发送话题是本地订阅、接收话题是本地发布
+#   （topic_manager.cpp:411-420 / 717-733）。
+#   同名会让「收进来的报文」再被广播出去 → 自我复制 → 广播风暴。
+#   实验室代码就是这么分的（advanced_param_swarm.xml:50-51）。
+#   本包四条通道全部遵守：
+#     traj  发 /broadcast_traj_from_planner  收 /broadcast_traj_to_planner
+#     odom  发 /mavros/local_position/odom   收 /mbn/droneN_odom
+#     sync  发 /race6/timesync_tx            收 /race6/timesync_rx
+#     link  发 /race6/comm_test_tx           收 /race6/comm_test_rx
+#
+# 【端口：同端口、不同主机】六台飞机各是独立主机，用相同端口号不冲突，
+#   所以配置里没有端口算术，改 IP 只改一处。
+#     4001 traj ｜ 4101 odom ｜ 4201 timesync ｜ 4401 comm_test
+#   （单机多机仿真必须改成错开端口，见 README §6）
+#
+# 【里程计不参与避碰】ego_planner 只订阅自己的 odom_world，预测别机位置
+#   用的是别机的 MinTraj（ego_replan_fsm.cpp:546-550）。转发 odom 只为
+#   地面站/RViz 监控用（/mbn/droneN_odom）。每对端约 6 kB/s，可忽略。
+#
+# 【★ 上真机前必须改】IP 段：drone0..drone5 换成本组六台飞机的真实 IP。
+#   推荐用生成器一次生成六份（避免手改漏改）：
+#     python3 ~/SixBotsRace/race6_comm/scripts/gen_race6_configs.py \
+#             --ips <ip0>,<ip1>,<ip2>,<ip3>,<ip4>,<ip5>
+#
+# 【六份对照】
+#   drone_0 收 1,2,3,4,5    drone_3 收 0,1,2,4,5
+#   drone_1 收 0,2,3,4,5    drone_4 收 0,1,2,3,5
+#   drone_2 收 0,1,3,4,5    drone_5 收 0,1,2,3,4
+# =====================================================================
+
+IP:
+  self: '*'
+  localhost: '127.0.0.1'
+  drone0: '192.168.152.101'          # ← 占位：0 号机（本机）
+  drone1: '192.168.152.102'          # ← 占位
+  drone2: '192.168.152.103'          # ← 占位
+  drone3: '192.168.152.104'          # ← 占位
+  drone4: '192.168.152.105'          # ← 占位
+  drone5: '192.168.152.106'          # ← 占位
+
+send_topics:
+  - topic: /broadcast_traj_from_planner
+    message_type: controller_msgs/MinTraj
+    max_frequency: 20
+    bind_address: self
+    port: 4001
+    compression: true                # 实验室 race3 配置即用 true；MinTraj 很小
+  - topic: /mavros/local_position/odom
+    message_type: nav_msgs/Odometry
+    max_frequency: 20
+    bind_address: self
+    port: 4101
+    compression: false
+  - topic: /race6/timesync_tx
+    message_type: std_msgs/Float64MultiArray
+    max_frequency: 20
+    bind_address: self
+    port: 4201
+    compression: false               # 时间同步要最低延迟，绝不压缩
+  - topic: /race6/comm_test_tx
+    message_type: std_msgs/Float64MultiArray
+    max_frequency: 20
+    bind_address: self
+    port: 4401
+    compression: false
+
+recv_topics:
+  # ---- 1 号机 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone1
+    port: 4001
+  - topic: /mbn/drone1_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone1
+    port: 4101
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone1
+    port: 4201
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone1
+    port: 4401
+  # ---- 2 号机 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone2
+    port: 4001
+  - topic: /mbn/drone2_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone2
+    port: 4101
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone2
+    port: 4201
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone2
+    port: 4401
+  # ---- 3 号机 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone3
+    port: 4001
+  - topic: /mbn/drone3_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone3
+    port: 4101
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone3
+    port: 4201
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone3
+    port: 4401
+  # ---- 4 号机 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone4
+    port: 4001
+  - topic: /mbn/drone4_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone4
+    port: 4101
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone4
+    port: 4201
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone4
+    port: 4401
+  # ---- 5 号机 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone5
+    port: 4001
+  - topic: /mbn/drone5_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone5
+    port: 4101
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone5
+    port: 4201
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone5
+    port: 4401
+
+advanced:
+  compression:
+    enable: true
+    type: lz4
+    level: 6
+  thread_pool:
+    size: 2
+  performance:
+    enable_statistics: true
+    statistics_interval_ms: 5000
+  retry:
+    max_retries: -1
+    interval_ms: 1000

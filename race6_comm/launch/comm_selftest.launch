@@ -1,0 +1,87 @@
+<launch>
+    <!-- =================================================================
+         race6_comm / launch/comm_selftest.launch
+         单机自测：不碰飞机，在本机把「通信 + 时间同步 + 收发验证 + 主通道验证」
+         整套流程跑通一遍。
+
+         原理：一个 Multibotnet 节点，接收连回自己的端口（config/selftest/loopback.yaml），
+              报文绕一圈回到本机；再起两个 self_id=0 / self_id=1 的脚本实例，
+              靠报文里的 id 互相区分 —— 等价于两台飞机互相收发。
+
+         用法：
+             roslaunch race6_comm comm_selftest.launch
+         预期：
+             offset ≈ 0（同一台机器同一个钟），丢包 0%，延迟 < 数 ms，
+             MinTraj 的 dt ≈ 0 ms，两条通道都 PASS。
+         这一步过了，再上飞机，出问题的概率会小很多。
+
+         跑完（约 25 秒后测试节点自动退出）按 Ctrl-C 结束。
+         ================================================================= -->
+
+    <arg name="test_duration" default="25.0"/>
+    <arg name="config"
+         default="$(find race6_comm)/config/selftest/loopback.yaml"/>
+
+    <!-- ===== 1. 唯一的 Multibotnet 节点（接收连回自己做回环）===== -->
+    <node pkg="multibotnet" type="multibotnet_topic_node"
+          name="multibotnet_selftest" output="screen" respawn="false">
+        <param name="config_file" value="$(arg config)"/>
+        <param name="log_level" value="info"/>
+    </node>
+
+    <!-- ===== 2. 时间同步：两个"假飞机" ===== -->
+    <node pkg="race6_comm" type="race6_time_sync.py"
+          name="race6_time_sync_0" output="screen">
+        <param name="self_id" value="0"/>
+        <param name="peers" value="1"/>
+        <param name="rate" value="1.0"/>
+        <param name="report_period" value="5.0"/>
+        <param name="apply" value="false"/>
+        <param name="duration" value="0.0"/>
+    </node>
+    <node pkg="race6_comm" type="race6_time_sync.py"
+          name="race6_time_sync_1" output="screen">
+        <param name="self_id" value="1"/>
+        <param name="peers" value="0"/>
+        <param name="rate" value="1.0"/>
+        <param name="report_period" value="5.0"/>
+        <param name="apply" value="false"/>
+        <param name="duration" value="0.0"/>
+    </node>
+
+    <!-- ===== 3. 通用链路验证 ===== -->
+    <node pkg="race6_comm" type="race6_comm_test.py"
+          name="race6_comm_test_0" output="screen">
+        <param name="self_id" value="0"/>
+        <param name="peers" value="1"/>
+        <param name="rate" value="5.0"/>
+        <param name="duration" value="$(arg test_duration)"/>
+        <param name="report_period" value="1.0"/>
+    </node>
+    <node pkg="race6_comm" type="race6_comm_test.py"
+          name="race6_comm_test_1" output="screen">
+        <param name="self_id" value="1"/>
+        <param name="peers" value="0"/>
+        <param name="rate" value="5.0"/>
+        <param name="duration" value="$(arg test_duration)"/>
+        <param name="report_period" value="1.0"/>
+    </node>
+
+    <!-- ===== 4. 竞赛主通道验证（controller_msgs/MinTraj）===== -->
+    <node pkg="race6_comm" type="race6_mintraj_test.py"
+          name="race6_mintraj_test_0" output="screen">
+        <param name="self_id" value="0"/>
+        <param name="peers" value="1"/>
+        <param name="rate" value="2.0"/>
+        <param name="duration" value="$(arg test_duration)"/>
+        <param name="report_period" value="2.0"/>
+    </node>
+    <node pkg="race6_comm" type="race6_mintraj_test.py"
+          name="race6_mintraj_test_1" output="screen">
+        <param name="self_id" value="1"/>
+        <param name="peers" value="0"/>
+        <param name="rate" value="2.0"/>
+        <param name="duration" value="$(arg test_duration)"/>
+        <param name="report_period" value="2.0"/>
+    </node>
+</launch>
