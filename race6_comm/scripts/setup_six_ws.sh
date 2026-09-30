@@ -40,6 +40,11 @@
 #   bash <仓库根>/race6_comm/scripts/setup_six_ws.sh --full
 #   bash <仓库根>/race6_comm/scripts/setup_six_ws.sh --minimal --deps-only
 #   WS=$HOME/other_ws bash setup_six_ws.sh --minimal
+#
+# ★ 飞机上（复用原有工作区，不要再造一个）：
+#   WS=$HOME/chen_ws bash <仓库根>/race6_comm/scripts/setup_six_ws.sh --minimal --no-lab
+#   --no-lab 只把 multibotnet + race6_comm 放进工作区，【绝不碰】工作区里原有的
+#   实验室代码（否则同名包重复，或给 px4ctrl 之类贴上 CATKIN_IGNORE 把飞行栈搞坏）。
 # =====================================================================
 set -u
 
@@ -51,6 +56,12 @@ MODE="minimal"
 METHOD="link"
 DEPS_ONLY=0
 INSTALL_DEPS=0
+# NO_LAB=1：只把 multibotnet + race6_comm 放进工作区，【不碰实验室代码】。
+#   用途：飞机上已经有现成的实验室工作区（~/chen_ws），里面已经有一份实验室代码，
+#   此时再把 controller_msgs / plan_manage 等塞进去会造成【同名包重复】，
+#   catkin_make 直接报 "Multiple packages found with the same name"。
+#   用法： WS=$HOME/chen_ws bash setup_six_ws.sh --minimal --no-lab
+NO_LAB=0
 
 for a in "$@"; do
   case "$a" in
@@ -60,7 +71,8 @@ for a in "$@"; do
     --copy)        METHOD="copy" ;;
     --deps-only)   DEPS_ONLY=1 ;;
     --install-deps) INSTALL_DEPS=1 ;;
-    -h|--help)     sed -n '2,40p' "$0"; exit 0 ;;
+    --no-lab)      NO_LAB=1 ;;
+    -h|--help)     sed -n '2,70p' "$0"; exit 0 ;;
     *) echo "未知参数: $a"; exit 2 ;;
   esac
 done
@@ -106,12 +118,13 @@ if [ -z "$MBN_SRC" ]; then
 fi
 
 echo "=============================================================="
-echo " six_ws 工作区搭建"
+echo " 工作区搭建（把 multibotnet + race6_comm 放进一个 catkin 工作区）"
 echo "   工作区   : $WS"
 echo "   race6_comm: $RC_DIR"
 echo "   实验室代码: $LAB"
 echo "   模式     : $MODE"
 echo "   放置方式 : $METHOD"
+[ "$NO_LAB" = "1" ] && echo "   --no-lab : 是（只放两个新包，不碰工作区里原有的实验室代码）"
 echo "=============================================================="
 
 if [ "$IN_REPO" = "0" ]; then
@@ -284,21 +297,40 @@ fi
 # ---- 2.2 实验室最新代码（只读引用，我们不改它）----
 place_race6_comm || { fail "race6_comm 放置失败，先处理上面的提示再重跑"; exit 1; }
 
-PLANNER="$LAB/ego-planner2/src/planner"
-if [ -d "$PLANNER" ]; then
-  # controller_msgs：MinTraj 定义在这里，通信测试就要它
-  place_file "$PLANNER/controller_msgs" "$SRC/planner/controller_msgs" "controller_msgs（MinTraj）"
+if [ "$NO_LAB" = "1" ]; then
+  # 飞机模式：工作区里已经有一份实验室代码（~/chen_ws/src），绝不能再放一份，
+  # 否则同名包重复，catkin_make 会报 "Multiple packages found with the same name"。
+  step "2.2 跳过实验室代码（--no-lab）"
+  ok "只放了 multibotnet + race6_comm；实验室代码用工作区里原有的那份"
+  echo "       请确认工作区里已经有 controller_msgs（race6_comm 依赖它）："
+  echo "         rospack find controller_msgs"
+  echo "         rosmsg show controller_msgs/MinTraj | head    # 必须有输出"
 else
-  fail "找不到 $PLANNER"
-  exit 1
+  step "2.2 放置实验室代码"
+  PLANNER="$LAB/ego-planner2/src/planner"
+  if [ -d "$PLANNER" ]; then
+    # controller_msgs：MinTraj 定义在这里，通信测试就要它
+    place_file "$PLANNER/controller_msgs" "$SRC/planner/controller_msgs" "controller_msgs（MinTraj）"
+  else
+    fail "找不到 $PLANNER"
+    exit 1
+  fi
+
+  if [ "$MODE" = "full" ]; then
+    for p in traj_utils path_searching plan_env traj_opt plan_manage drone_detect; do
+      place_file "$PLANNER/$p" "$SRC/planner/$p" "$p"
+    done
+    place_file "$LAB/MLMapping-Embedded_version" "$SRC/MLMapping-Embedded_version" "MLMapping-Embedded_version"
+    place_file "$LAB/FAST_LIO"                   "$SRC/FAST_LIO"                   "FAST_LIO"
+  fi
 fi
 
-if [ "$MODE" = "full" ]; then
-  for p in traj_utils path_searching plan_env traj_opt plan_manage drone_detect; do
-    place_file "$PLANNER/$p" "$SRC/planner/$p" "$p"
-  done
-  place_file "$LAB/MLMapping-Embedded_version" "$SRC/MLMapping-Embedded_version" "MLMapping-Embedded_version"
-  place_file "$LAB/FAST_LIO"                   "$SRC/FAST_LIO"                   "FAST_LIO"
+# ---------------------------------------------------------------------
+# 以下两块【只有 PC 上的 --full 模式】才需要：
+#   飞机上（--no-lab）工作区里本来就已经有 px4Controller / rviz_draw / MLMapping / FAST_LIO
+#   和装好的 Sophus，再塞一份会造成同名包重复，也没有必要重新装 Sophus。
+# ---------------------------------------------------------------------
+if [ "$MODE" = "full" ] && [ "$NO_LAB" = "0" ]; then
 
   # 实机控制/驱动（在 chen_ws2 里有现成的就一起带上）
   for extra in \
@@ -337,9 +369,11 @@ if [ "$MODE" = "full" ]; then
 fi
 
 # ---------------------------------------------------------------------
-# 3. 无法编译的包加 CATKIN_IGNORE（只影响 --full）
+# 3. 无法编译的包加 CATKIN_IGNORE（只影响 PC 上的 --full）
+#    ★ --no-lab 时【绝不能跑】：那会给飞机上原有工作区的包贴 CATKIN_IGNORE，
+#      等于把飞机本来的飞行栈（px4ctrl 等）从编译里摘掉！所以这里必须双重限定。
 # ---------------------------------------------------------------------
-if [ "$MODE" = "full" ]; then
+if [ "$MODE" = "full" ] && [ "$NO_LAB" = "0" ]; then
   step "3. 给暂时编不了的包加 CATKIN_IGNORE"
   set_ignore() {
     local d="$1" why="$2"
@@ -414,6 +448,7 @@ if [ -f "$WS/build/CMakeCache.txt" ]; then
   CACHED_HOME=$(grep -m1 '^CMAKE_HOME_DIRECTORY' "$WS/build/CMakeCache.txt" 2>/dev/null | cut -d= -f2-)
   if [ -n "$CACHED_HOME" ] && [ "$CACHED_HOME" != "$WS/src" ]; then
     warn "build/CMakeCache.txt 记的是 '$CACHED_HOME'，与本机 '$WS/src' 不符 → 删掉 build/ 与 devel/ 重来"
+    warn "★ 这会让【整个工作区】重新编译一遍；如果这是飞机上的 chen_ws，可能要等很久，且期间无法起飞。"
     rm -rf "$WS/build" "$WS/devel"
   fi
 fi
@@ -429,9 +464,13 @@ if [ "$RC" -ne 0 ]; then
   echo "----- 最后 40 行里的错误 -----"
   grep -nE "error|Error|fatal|错误" "$LOG" | tail -40
   echo
-  echo "如果只是 planner/mlmapping 之类的包失败，先不管它："
-  echo "  地面通信+时间同步只需要 multibotnet / controller_msgs / race6_comm，"
-  echo "  用 --minimal 模式重建一个干净工作区即可。"
+  echo "如果只是 planner/mlmapping 之类的包失败："
+  echo "  * PC 上：地面通信+时间同步只需要 multibotnet / controller_msgs / race6_comm，"
+  echo "           换一个干净的 --minimal 工作区重建即可。"
+  echo "  * 飞机上（--no-lab，复用原有 ~/chen_ws）：不要重建工作区！"
+  echo "           那是飞机唯一能飞的栈。先看是不是 multibotnet/race6_comm 本身的问题："
+  echo "             cd $WS && catkin_make -DCATKIN_WHITELIST_PACKAGES=\"multibotnet;race6_comm\""
+  echo "           编过之后再 catkin_make -DCATKIN_WHITELIST_PACKAGES=\"\" 清掉白名单。"
   exit "$RC"
 fi
 ok "编译成功"
@@ -439,6 +478,34 @@ ok "编译成功"
 # ---------------------------------------------------------------------
 # 6. 验证
 # ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# 5.5 校验 launch 文件的 XML 合法性
+#   专门拦一类很隐蔽的错误：XML 注释里出现【连续两个减号】"--"。
+#   例如 <!-- ... 请加 --apply 参数 ... --> 会让 roslaunch 直接报
+#     RLException: Invalid roslaunch XML syntax: not well-formed (invalid token)
+#   而且只有真正加载到那个文件时才报 —— 自测的 launch 能跑，不代表别的也能跑。
+#   （XML 规范：注释内容里不允许出现 "--"，因为它是注释结束符的一部分。）
+# ---------------------------------------------------------------------
+step "5.5 校验 launch 文件的 XML 合法性"
+XMLBAD=0
+for f in "$RC_DIR"/launch/*.launch; do
+  [ -f "$f" ] || continue
+  if ERR=$(python3 -c "import sys,xml.dom.minidom as m; m.parse(sys.argv[1])" "$f" 2>&1); then
+    ok "XML OK: $(basename "$f")"
+  else
+    fail "XML 不合法: $(basename "$f")"
+    echo "$ERR" | tail -2 | sed 's/^/       /'
+    XMLBAD=$((XMLBAD+1))
+  fi
+done
+if [ "$XMLBAD" -ne 0 ]; then
+  fail "$XMLBAD 个 launch 文件有 XML 语法错误"
+  echo "       最常见原因：注释里写了连续两个减号。逐个查："
+  echo "         grep -n -- '--' $RC_DIR/launch/*.launch"
+  echo "       看报的【行号:列号】，那一列附近一定有连续两个减号，改成别的写法即可。"
+  exit 1
+fi
+
 step "6. 验证包可见性"
 # shellcheck disable=SC1091
 source "$WS/devel/setup.bash" || true
@@ -455,6 +522,23 @@ echo
 if [ "$MISSING" -eq 0 ]; then
   ok "工作区就绪：$WS"
   echo
+  echo "=================================================================="
+  echo -e "${Y}★ 上面这些 [ OK ] 是在【本脚本自己的子 shell】里验证的，"
+  echo -e "  它【不会】改变你当前终端的 ROS_PACKAGE_PATH！"
+  echo -e "  现在请在你的终端里手动执行这一行，roslaunch 才能找到 race6_comm：${N}"
+  echo
+  echo "      source $WS/devel/setup.bash"
+  echo
+  echo "  想一劳永逸，就把它写进 ~/.bashrc（以后新开终端自动生效）："
+  echo "      cat >> ~/.bashrc <<'BASH_EOF'"
+  echo "      source /opt/ros/noetic/setup.bash"
+  echo "      [ -f $WS/devel/setup.bash ] && source $WS/devel/setup.bash"
+  echo "      BASH_EOF"
+  echo
+  echo "  自检（必须打印出路径，不能是 not found）："
+  echo "      rospack find race6_comm"
+  echo "=================================================================="
+  echo
   echo "下一步（地面双机通信+时间同步联调）："
   echo "  1) 改 IP（改的是【仓库里的真源】，不是工作区副本）："
   echo "       vi $RC_DIR/config/ground2/drone_0.yaml   （drone0/drone1 两行）"
@@ -468,6 +552,7 @@ if [ "$MISSING" -eq 0 ]; then
   echo "  详见 $RC_DIR/README.md 与 $LAB/PROJECT.md"
 else
   fail "$MISSING 个包缺失，看编译日志 $LOG"
+  echo "  提示：rospack 有缓存，新增包后要 source 工作区并执行 rospack profile 才会被看到。"
   exit 1
 fi
 
