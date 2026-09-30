@@ -58,7 +58,7 @@
     <param name="race6/drone_id" value="$(arg drone_id)" type="int"/>
 
     <!-- ============================================================
-         2. 时间同步（只测量；要校时请单独 rosrun 加 --apply）
+         2. 时间同步（只测量；要校时请单独 rosrun 并加 apply 参数）
          ============================================================ -->
     <node if="$(arg run_time_sync)"
           pkg="race6_comm" type="race6_time_sync.py"
