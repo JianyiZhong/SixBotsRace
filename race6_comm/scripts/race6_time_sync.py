@@ -327,12 +327,15 @@ class TimeSyncNode(object):
 
         no_data = (not peers) or all(p.resp_count == 0 for p in peers.values())
         if no_data:
-            print("  ⚠️ 还没有收到任何对端的应答报文。逐项检查：")
-            print("     1) 对端是否也在跑 race6_time_sync.py，且 --self-id 与它的 drone_id 一致？")
-            print("     2) 两端 IP 是否已按真实地址填进 config/*.yaml 的 IP 段？")
-            print("     3) multibotnet 节点是否两端都起来了？日志里应出现")
+            print("  ⚠️ 还没有收到任何对端的应答报文。按这个顺序查（前两条是【静默失败】，最容易漏）：")
+            print("     1) ★ Multibotnet 配置表里 Receive Topics 那几行，'<-' 后面【必须是 IP】。")
+            print("        显示成一个名字（例如 <- drone0:4201）= 该别名没在 IP 段里定义，")
+            print("        Multibotnet 把它当主机名，解析不了就永远连不上且不报错。")
+            print("     2) 跑配置自检： rosrun race6_comm check_config.py --all")
+            print("     3) 对端是否也在跑 race6_time_sync.py，且 --self-id 与它的 drone_id 一致？")
+            print("     4) multibotnet 是否两端都起来了？日志里应出现")
             print("        \"Topic '/race6/timesync_rx' [std_msgs/Float64MultiArray] receiving data from network\"")
-            print("     4) rostopic hz %s  本机应 ≈ %.1f Hz（本机自己发的 REQ）" % (SEND_TOPIC, self.rate_hz))
+            print("     5) rostopic hz %s  本机应 ≈ %.1f Hz（本机自己发的 REQ）" % (SEND_TOPIC, self.rate_hz))
             if not peers:
                 print("=" * 96)
                 return

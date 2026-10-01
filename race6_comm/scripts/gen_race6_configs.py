@@ -43,19 +43,26 @@ import sys
 
 HEADER = """\
 # =====================================================================
-# race6_comm / config/race6/drone_{did}.yaml —— 竞赛配置：{did} 号机
-#
+# drone_{did}.yaml —— 6 机通用 Multibotnet 配置（软件编号 {did} = 物理 {phys} 号机）
+#   ★ 本文件用于【物理 {phys} 号机】，启动时用 drone_id:={did}
+{note}
 # 本文件由 scripts/gen_race6_configs.py 生成（也可手改）。
-# 端口方案、发/收话题必须分开的原因，详见 drone_0.yaml 的注释。
 #
-#   ★ 关键约束：发和收必须是两个不同的话题名，否则广播风暴
+# ★★ 编号：软件 drone_id 必须从 0 开始（物理 1 号机 = drone_id 0）★★
+#   否则没有任何一台的 id 是 0，六台【谁都不会起飞】——原因见 drone_0.yaml 头部
+#   （ego_replan_fsm.cpp:173 的起跑条件 + :1306-1320 要求 swarm_traj[0].drone_id == 0）。
+#   映射：物理 1→0 ｜ 2→1 ｜ 3→2 ｜ 4→3 ｜ 5→4 ｜ 6→5
+#   用脚本起最省事： bash race6_launch.sh {phys}
+#
+# ★ 关键约束：发和收必须是两个不同的话题名，否则广播风暴
 #     traj  发 /broadcast_traj_from_planner  收 /broadcast_traj_to_planner
 #     odom  发 /mavros/local_position/odom   收 /mbn/droneN_odom（仅监控用）
 #     sync  发 /race6/timesync_tx            收 /race6/timesync_rx
 #     link  发 /race6/comm_test_tx           收 /race6/comm_test_rx
 #   端口（所有飞机相同，主机不同）：4001 / 4101 / 4201 / 4401
 #
-# 【★ 上真机前务必确认 IP 段是本组六台飞机的真实 IP】★
+# 【★ 上真机前务必确认 IP 段是本组六台飞机的真实 IP，且所有配置完全一致】★
+#   自检：python3 scripts/check_config.py --all
 # =====================================================================
 
 IP:
@@ -138,11 +145,14 @@ advanced:
 """
 
 
-def build(ip_list, did):
-    """生成 drone_<did> 的完整配置文本"""
-    out = [HEADER.format(did=did)]
+def build(ip_list, did, note=""):
+    """生成 drone_<did> 的完整配置文本（did 是【软件编号】0..N-1，物理编号 = did+1）"""
+    out = [HEADER.format(did=did, phys=did + 1, note=note)]
     for i, ip in enumerate(ip_list):
-        mark = "          # ← 本机" if i == did else ""
+        if i == did:
+            mark = "          # 物理 %d 号机（本机，drone_id:=%d）" % (i + 1, did)
+        else:
+            mark = "          # 物理 %d 号机" % (i + 1)
         out.append("  drone%d: '%s'%s\n" % (i, ip, mark))
     out.append(SEND_BLOCK)
     for pid in range(len(ip_list)):
@@ -158,8 +168,10 @@ def main():
     pkg = os.path.dirname(here)                      # .../race6_comm
 
     ap = argparse.ArgumentParser(description="生成 race6 Multibotnet 配置")
-    ap.add_argument("--ips", required=True,
-                    help="逗号分隔的 IP 列表，顺序 = drone0,drone1,...")
+    ap.add_argument("--ips",
+                    default=",".join("192.168.66.%d" % (101 + i) for i in range(6)),
+                    help="逗号分隔的 IP，顺序 = 物理 1 号机..物理 6 号机"
+                         "（= 软件 drone0..drone5）。默认 192.168.66.101..106")
     ap.add_argument("--out", default=os.path.join(pkg, "config", "race6"),
                     help="输出目录，默认 <race6_comm>/config/race6")
     ap.add_argument("--dry-run", action="store_true", help="只打印不写文件")
@@ -176,9 +188,15 @@ def main():
             return 2
 
     print("将要生成 %d 份配置 → %s" % (len(ips), args.out))
+    print("")
+    print("  物理编号   软件 drone_id   配置文件             IP                 接收")
+    print("  --------   ------------   ------------------   ----------------   ----")
     for i, ip in enumerate(ips):
-        print("  drone_%d.yaml : 本机 %s，收 %s"
-              % (i, ip, ",".join(str(j) for j in range(len(ips)) if j != i)))
+        print("   %d 号机       %d          drone_%d.yaml      %-16s   %s"
+              % (i + 1, i, i, ip,
+                 ",".join(str(j) for j in range(len(ips)) if j != i)))
+    print("")
+    print("  ★ 软件 drone_id 必须从 0 开始，不能直接用 1~6（否则六台全都不起飞）")
 
     if not args.dry_run:
         if not os.path.isdir(args.out):
@@ -194,12 +212,34 @@ def main():
             fh.write(text)
         print("  已写 %s (%d 字节)" % (path, len(text)))
 
+    # ------------------------------------------------------------------
+    # 顺手把 config/ground2/drone_0.yaml 和 drone_1.yaml 同步成同样内容。
+    # ground2/ 是历史遗留路径（早期只服务物理 1↔2），但现在内容与 race6/ 等价；
+    # 由生成器一起写，就不会出现"改了一处忘了另一处"。
+    # ------------------------------------------------------------------
+    if not args.dry_run and os.path.basename(os.path.abspath(args.out)) == "race6":
+        g2 = os.path.join(os.path.dirname(os.path.abspath(args.out)), "ground2")
+        if os.path.isdir(g2):
+            print("")
+            for did in (0, 1):
+                note = ("#   （本文件位于 config/ground2/，功能内容与 config/race6/drone_%d.yaml 相同；\n"
+                        "#     由生成器一起同步，改 IP 时两处不会不一致）\n"
+                        "#   新流程请优先用 race6/，或直接跑 scripts/race6_launch.sh <物理编号>。\n"
+                        % did)
+                path = os.path.join(g2, "drone_%d.yaml" % did)
+                with open(path, "w") as fh:
+                    fh.write(build(ips, did, note=note))
+                print("  同步 %s" % path)
+
     if not args.dry_run:
         print("")
-        print("提示：把这 %d 份分发到各台飞机上，每台只需要自己那一份：" % len(ips))
-        print("  scp %s/drone_1.yaml orangepi@<1号机IP>:~/six_ws/src/race6_comm/config/race6/"
-              % args.out)
-        print("  或者整个 race6_comm 包一起拷过去。")
+        print("下一步：")
+        print("  1) 自检： python3 %s/../scripts/check_config.py --all" % args.out)
+        print("  2) 提交： git -C <仓库根> add race6_comm && git commit -m 'config: 填入六机真实 IP' && git push")
+        print("  3) 每台飞机 pull 之后，用物理编号一条命令起（不用自己算 drone_id）：")
+        for i in range(len(ips)):
+            print("       物理 %d 号机:  bash race6_launch.sh %d" % (i + 1, i + 1))
+        print("  ★ 六份配置里的六行 IP 必须完全一致")
     return 0
 
 

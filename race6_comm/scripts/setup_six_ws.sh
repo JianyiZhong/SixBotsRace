@@ -506,7 +506,23 @@ if [ "$XMLBAD" -ne 0 ]; then
   exit 1
 fi
 
-step "6. 验证包可见性"
+step "6. 校验 Multibotnet 配置（静默失败的重灾区）"
+# 见 scripts/check_config.py 头部：connect_address 用了 IP 段里【没有定义】的别名时，
+# resolveAddress() 会原样返回字符串（topic_manager.cpp:341-352），
+# 连接地址变成 tcp://<别名>:port，ZMQ 当主机名去解析、解析不了就永远连不上，
+# 而 Multibotnet 一个错都不报 —— 只在"接收计数一直是 0"上体现。
+if [ -f "$RC_DIR/scripts/check_config.py" ]; then
+  if python3 "$RC_DIR/scripts/check_config.py" --dir "$RC_DIR/config" --quiet; then
+    ok "Multibotnet 配置全部通过"
+  else
+    fail "有配置文件不通过 —— 先修掉再上飞机（最常见：connect_address 用了未定义的别名）"
+    exit 1
+  fi
+else
+  warn "找不到 scripts/check_config.py，跳过配置检查"
+fi
+
+step "7. 验证包可见性"
 # shellcheck disable=SC1091
 source "$WS/devel/setup.bash" || true
 rospack profile >/dev/null 2>&1 || true
@@ -539,13 +555,14 @@ if [ "$MISSING" -eq 0 ]; then
   echo "      rospack find race6_comm"
   echo "=================================================================="
   echo
-  echo "下一步（地面双机通信+时间同步联调）："
-  echo "  1) 改 IP（改的是【仓库里的真源】，不是工作区副本）："
-  echo "       vi $RC_DIR/config/ground2/drone_0.yaml   （drone0/drone1 两行）"
-  echo "       vi $RC_DIR/config/ground2/drone_1.yaml   （同样的两行，必须一致）"
-  echo "  2) 每台飞机上各起一份："
-  echo "       roslaunch race6_comm comm_ground_test.launch drone_id:=0 peers:=1"
-  echo "       roslaunch race6_comm comm_ground_test.launch drone_id:=1 peers:=0"
+  echo "下一步（真机通讯 + 时间同步联调）："
+  echo "  1) 填 IP：用生成器一次重写全部配置（会同时写 race6/ 和 ground2/，不会漏）"
+  echo "       cd $RC_DIR && python3 scripts/gen_race6_configs.py --ips <物理1IP>,<物理2IP>,<物理3IP>,<物理4IP>,<物理5IP>,<物理6IP>"
+  echo "       python3 scripts/check_config.py --all      # 必须全绿"
+  echo "  2) 每台飞机上按【物理编号】起（drone_id = 物理编号 - 1，自动算）："
+  echo "       bash $RC_DIR/scripts/race6_launch.sh <物理编号>              # 六台全上"
+  echo "       bash $RC_DIR/scripts/race6_launch.sh 3 --pair=5             # 只和物理 5 号机对测"
+  echo "       详见 $RC_DIR/测试全链路.md"
   echo "  3) 验收通过后别忘提交（否则只有工作区里有，仓库里没有）："
   echo "       git -C $LAB add race6_comm && git -C $LAB commit -m 'config: 填入真实 IP'"
   echo "       git -C $LAB tag -a v0.1-ground-comms -m '地面双机通信+时间同步验收通过'"

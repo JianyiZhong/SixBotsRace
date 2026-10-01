@@ -19,6 +19,7 @@ catkin_install_python(PROGRAMS
   scripts/race6_time_sync.py
   scripts/race6_comm_test.py
   scripts/race6_mintraj_test.py
+  scripts/check_config.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
@@ -33,5 +34,6 @@ install(DIRECTORY config launch
 install(PROGRAMS
   scripts/setup_six_ws.sh
   scripts/gen_race6_configs.py
+  scripts/race6_launch.sh
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/scripts
 )
