@@ -1,49 +1,54 @@
 # =====================================================================
 # race6_comm / config/ground2/drone_1.yaml
+#   ★ 本文件用于【物理 2 号机】，启动时用 drone_id:=1
 #
-# 【用途】真机双机「通信 + 时间同步 + 里程计转发」联调 —— 1 号机（本机）
+# ⚠️ 这份文件的【功能内容】与 config/race6/drone_1.yaml 完全相同（六个 IP、
+#    四条通道、五个对端；只有头部注释不同），所以【任意两台/任意几台飞机都能直接用它】——
+#    没开机的对端连不上只是"没有数据"，无害。
+#    保留 ground2/ 只是为了兼容早期命令 `config:=.../ground2/drone_1.yaml`。
 #
-# 与 drone_0.yaml 完全对称：端口号一模一样（同端口、不同主机方案），
-# 唯一区别是「接收列表里连谁」。
-#   本机 = 1 号机 → 接收 drone0
+#   ★ 新流程请直接用 race6/（launch 的默认值也已经指向 race6）：
+#       bash race6_comm/scripts/race6_launch.sh <物理编号>
+#   ★ 改 IP 一律用生成器 —— 它会同时写 race6/ 和 ground2/，不会漏：
+#       python3 ~/SixBotsRace/race6_comm/scripts/gen_race6_configs.py --ips <6个IP>
+#   ★ 改完必须自检：
+#       python3 ~/SixBotsRace/race6_comm/scripts/check_config.py --all
 #
-# ★ 发和收必须是两个不同的话题名（否则广播风暴），
-#   原因、以及「里程计其实不参与避碰」这两点都写在 drone_0.yaml 头部，务必先读。
-#
-#   端口（所有飞机相同，主机不同）：
-#     4001 轨迹  4101 里程计  4201 时间同步  4401 链路测试
-#
-# 【★ 上真机前必须改】drone0 / drone1 的真实 IP（与 drone_0.yaml 保持一致）。
+# 编号：物理 2 号机 = drone_id 1（软件编号必须从 0 开始，否则六台全不起飞，
+#       原因见 config/race6/drone_0.yaml 头部）
+# 原理（端口方案、发/收话题为什么必须不同名、里程计不参与避碰）：
+#       见 config/race6/drone_0.yaml 头部
 # =====================================================================
 
 IP:
   self: '*'
   localhost: '127.0.0.1'
-  drone0: '192.168.152.101'          # ← 占位：0 号机真实 IP
-  drone1: '192.168.152.102'          # ← 占位：1 号机真实 IP
+  drone0: '192.168.66.101'           # 物理 1 号机
+  drone1: '192.168.66.102'           # 物理 2 号机（本机，drone_id:=1）
+  drone2: '192.168.66.103'           # 物理 3 号机
+  drone3: '192.168.66.104'           # 物理 4 号机
+  drone4: '192.168.66.105'           # 物理 5 号机
+  drone5: '192.168.66.106'           # 物理 6 号机
 
 send_topics:
   - topic: /broadcast_traj_from_planner
     message_type: controller_msgs/MinTraj
     max_frequency: 20
     bind_address: self
-    port: 4001                       # 与 0 号机相同端口，但主机不同 → 不冲突
-    compression: false
-
+    port: 4001
+    compression: true
   - topic: /mavros/local_position/odom
     message_type: nav_msgs/Odometry
     max_frequency: 20
     bind_address: self
     port: 4101
     compression: false
-
   - topic: /race6/timesync_tx
     message_type: std_msgs/Float64MultiArray
     max_frequency: 20
     bind_address: self
     port: 4201
     compression: false
-
   - topic: /race6/comm_test_tx
     message_type: std_msgs/Float64MultiArray
     max_frequency: 20
@@ -52,33 +57,95 @@ send_topics:
     compression: false
 
 recv_topics:
-  # ---- 0 号机的轨迹 ----
+  # ---- 0 号机 ----
   - topic: /broadcast_traj_to_planner
     message_type: controller_msgs/MinTraj
-    connect_address: drone0          # ★ 本机是 1 号机 → 连 drone0
+    connect_address: drone0
     port: 4001
-
-  # ---- 0 号机的里程计 ----
   - topic: /mbn/drone0_odom
     message_type: nav_msgs/Odometry
-    connect_address: drone0          # ★
+    connect_address: drone0
     port: 4101
-
-  # ---- 0 号机的时间同步 ----
   - topic: /race6/timesync_rx
     message_type: std_msgs/Float64MultiArray
-    connect_address: drone0          # ★
+    connect_address: drone0
     port: 4201
-
-  # ---- 0 号机的链路测试包 ----
   - topic: /race6/comm_test_rx
     message_type: std_msgs/Float64MultiArray
-    connect_address: drone0          # ★
+    connect_address: drone0
+    port: 4401
+  # ---- 2 号机 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone2
+    port: 4001
+  - topic: /mbn/drone2_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone2
+    port: 4101
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone2
+    port: 4201
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone2
+    port: 4401
+  # ---- 3 号机 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone3
+    port: 4001
+  - topic: /mbn/drone3_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone3
+    port: 4101
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone3
+    port: 4201
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone3
+    port: 4401
+  # ---- 4 号机 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone4
+    port: 4001
+  - topic: /mbn/drone4_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone4
+    port: 4101
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone4
+    port: 4201
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone4
+    port: 4401
+  # ---- 5 号机 ----
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone5
+    port: 4001
+  - topic: /mbn/drone5_odom
+    message_type: nav_msgs/Odometry
+    connect_address: drone5
+    port: 4101
+  - topic: /race6/timesync_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone5
+    port: 4201
+  - topic: /race6/comm_test_rx
+    message_type: std_msgs/Float64MultiArray
+    connect_address: drone5
     port: 4401
 
 advanced:
   compression:
-    enable: false
+    enable: true
     type: lz4
     level: 6
   thread_pool:

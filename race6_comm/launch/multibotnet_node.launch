@@ -6,17 +6,17 @@
 
          用法：
            roslaunch race6_comm multibotnet_node.launch drone_id:=0
-           roslaunch race6_comm multibotnet_node.launch drone_id:=1 \
-                    config:=$(find race6_comm)/config/ground2/drone_1.yaml
+           roslaunch race6_comm multibotnet_node.launch drone_id:=2 \
+                    config:=$(find race6_comm)/config/race6/drone_2.yaml
 
-         ⚠️ config 的默认值会按 drone_id 自动选 ground2/drone_<id>.yaml。
-         ⚠️ 换到竞赛配置时显式指定 config，例如：
-              config:=$(find race6_comm)/config/race6/drone_3.yaml
+         ⚠️ config 的默认值会按 drone_id 自动选 config/race6/drone_<id>.yaml。
+         ⚠️ 换到别的配置文件时显式指定 config（一般用不着，race6/ 那套是六机通用的）。
          ================================================================= -->
 
     <arg name="drone_id" default="0"/>
+    <!-- 默认指向六机通用的 config/race6/drone_<id>.yaml（物理编号 N → drone_id:=N-1） -->
     <arg name="config"
-         default="$(find race6_comm)/config/ground2/drone_$(arg drone_id).yaml"/>
+         default="$(find race6_comm)/config/race6/drone_$(arg drone_id).yaml"/>
     <arg name="log_level" default="info"/>
 
     <!-- Multibotnet 节点

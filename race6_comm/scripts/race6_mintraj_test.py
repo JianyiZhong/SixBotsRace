@@ -268,15 +268,17 @@ class MinTrajTestNode(object):
         print("[race6_mintraj_test] %s  本机 drone_%d  已运行 %.1f s  本机已发 %d 条 MinTraj"
               % (tag, self.self_id, time.time() - self.start_time, sent))
         if not peers:
-            print("  ⚠️ 还没收到任何 MinTraj。这条通道有 4 个特有坑，逐项检查：")
-            print("     1) 两端都编译并 source 了 controller_msgs？")
-            print("        rospack find controller_msgs  → 应为 ~/six_ws/src/planner/controller_msgs")
-            print("     2) config/*.yaml 里 MinTraj 那条的 message_type 是否写成")
+            print("  ⚠️ 还没收到任何 MinTraj。按这个顺序查（第 1 条是【静默失败】，最容易漏）：")
+            print("     1) ★ Multibotnet 配置表里 Receive Topics 那几行，'<-' 后面【必须是 IP】：")
+            print("        显示成一个名字（例如 <- drone0:4001）= 该别名没在 IP 段里定义，")
+            print("        Multibotnet 把它当主机名，解析不了就永远连不上，而且【一个错都不报】。")
+            print("        自检： rosrun race6_comm check_config.py --all")
+            print("     2) 两端都编译并 source 了 controller_msgs？ rospack find controller_msgs")
+            print("     3) config/*.yaml 里 MinTraj 那条的 message_type 是否写成")
             print("        controller_msgs/MinTraj（斜杠，不是点号）？")
-            print("     3) 话题名是否就是 %s / %s ？" % (SEND_TOPIC, RECV_TOPIC))
+            print("     4) 话题名是否就是 %s / %s ？" % (SEND_TOPIC, RECV_TOPIC))
             print("        （必须与 advanced_param_swarm.xml:50-51 的 remap 一致）")
-            print("     4) multibotnet 端口 4001 两端是否都绑上了？")
-            print("        netstat -tlnp | grep 4001")
+            print("     5) multibotnet 端口 4001 两端是否都绑上了？ netstat -tlnp | grep 4001")
             print("=" * 108)
             return False
 

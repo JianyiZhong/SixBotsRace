@@ -212,13 +212,15 @@ class CommTestNode(object):
         print("[race6_comm_test] %s  本机 drone_%d  已运行 %.1f s  本机已发 %d 帧 (%.2f Hz)"
               % (tag, self.self_id, elapsed, sent, sent / elapsed))
         if not peers:
-            print("  ⚠️ 还没收到任何对端的 comm_test 报文。逐项检查：")
-            print("     1) 对端是否也在跑本脚本？")
-            print("     2) config/*.yaml 的 IP 段是否已填真实 IP？(ping 通不通)")
-            print("     3) 两端 multibotnet 节点是否都起来了？")
+            print("  ⚠️ 还没收到任何对端的 comm_test 报文。按这个顺序查（前两条是【静默失败】，最容易漏）：")
+            print("     1) ★ Multibotnet 配置表里 Receive Topics 那几行，'<-' 后面【必须是 IP】。")
+            print("        显示成一个名字（例如  <- drone0:4001）= 该别名没在 IP 段里定义，")
+            print("        Multibotnet 会把它当主机名去解析，解析不了就永远连不上，而且【一个错都不报】。")
+            print("     2) 跑配置自检： rosrun race6_comm check_config.py --all")
+            print("     3) 对端是否也在跑本脚本？两端 multibotnet 是否都起来了？")
             print("        对端日志应出现: Topic '/race6/comm_test_rx' [...] receiving data from network")
             print("     4) 本机 rostopic hz %s 应 ≈ %.1f Hz（本机自己发的）" % (TOPIC_SEND, self.rate_hz))
-            print("     5) 防火墙: sudo ufw allow 4401   /  sudo ufw status")
+            print("     5) 网络：ping 对端；防火墙 sudo ufw allow 4401；路由器是否开了客户端隔离")
             print("=" * 104)
             return False
 

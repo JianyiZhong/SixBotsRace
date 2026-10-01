@@ -19,8 +19,13 @@
          ================================================================= -->
 
     <arg name="drone_id" default="0"/>
+    <!-- 默认配置指向 config/race6/drone_<id>.yaml —— 六机通用（任意两台/任意几台都能用，
+         连不上的对端只是没有数据，无害）。
+         ★ 不要再用 config/ground2/ 了：那套只服务物理 1↔2，且和 race6/ 内容重复，
+           容易改了一处忘了另一处。物理编号 N 用 drone_id:=N-1。
+         最省事的起法： bash race6_comm/scripts/race6_launch.sh <物理编号> -->
     <arg name="config"
-         default="$(find race6_comm)/config/ground2/drone_$(arg drone_id).yaml"/>
+         default="$(find race6_comm)/config/race6/drone_$(arg drone_id).yaml"/>
     <arg name="log_level" default="info"/>
 
     <!-- 期望对端，逗号分隔，仅用于打印提示和「该来的没来」判定 -->

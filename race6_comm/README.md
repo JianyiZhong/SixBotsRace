@@ -77,6 +77,62 @@ Multibotnet，现在明确用 Multibotnet。
 > ① 他们用的是 `traj_utils/MINCOTraj`，`SixBotsRace` 里已经改成 `controller_msgs/MinTraj`；
 > ② 单机仿真必须错开端口，真机多主机可以同端口（本包用同端口，省掉端口算术）。
 
+### 2.1 「方案A / 方案B」这个问法在这份代码里不成立（**别去改源码**）
+
+看上游 EGO-Planner-v2 / EGO-Swarm 的文档时，通常会看到"接入 Multibotnet 有两个方案"：
+
+- **方案A**：在发/收轨迹的地方直接把 ROS publish/subscribe 换成 Multibotnet 的 API；
+- **方案B**：另起一个节点，订阅本机轨迹 → 通过 Multibotnet 发出去；收到他机轨迹 → 再以 ROS 话题发出来。
+
+**在这份实验室代码里，方案B 已经存在了，而且实现者就是 Multibotnet 本身。**
+`multibotnet_topic_node` 这个独立节点做的正是方案B 描述的事，而它是由 YAML 驱动的：
+
+```yaml
+send_topics:                    # 「订阅本机轨迹 → 发到网络」
+  - topic: /broadcast_traj_from_planner
+    message_type: controller_msgs/MinTraj
+    port: 4001
+recv_topics:                    # 「收到他机轨迹 → 以 ROS 话题发布，供原逻辑订阅」
+  - topic: /broadcast_traj_to_planner
+    message_type: controller_msgs/MinTraj
+    connect_address: drone3
+    port: 4001
+```
+
+原因是这段代码的收发**已经被「话题名」这个接缝彻底解耦**：`ego_replan_fsm.cpp:73-74`
+只认那两个话题名，它不知道也不关心另一头是谁（原本预留的是 `swarm_bridge`，
+现在是 Multibotnet）。⇒ **接入工作量 = 0 行源码改动，只需要 YAML 配置。**
+
+反过来，去改 `ego_replan_fsm.cpp` 调 Multibotnet API（方案A）是把已经解耦好的设计重新耦合，
+得不偿失。
+
+#### 两个容易搞混的点（上游资料会误导你）
+
+| 上游常见说法 | 这份代码的实际情况 |
+|---|---|
+| 通讯模块叫 `swarm_bridge` | **仓库里没有这个包。** 只有 7 处 `<include file="$(find swarm_bridge)/launch/bridge_udp.launch">`，全在 `swarm.launch` / `circle_exchange.launch` / `multi_drone_interactive.launch` 等**上游遗留 demo** 里，现在一跑就报"找不到包"。实验室已经把它删了，把搬砖工的位置留给了 Multibotnet |
+| 广播话题叫 `/broadcast_bspline` | **没有这个话题**（全仓库 0 处）。真实话题是 `/broadcast_traj_from_planner` / `/broadcast_traj_to_planner`，类型 `controller_msgs/MinTraj`（**MINCO 参数化**，不是 B 样条；`ego_replan_fsm.cpp:72` 注明了是为省无线带宽）。另外 `planning/trajectory`（`traj_utils/PolyTraj`）是**本机内部**给 `traj_server` 的，不参与多机通讯 |
+| 广播话题带 `drone_id` 后缀 | **不带**。`drone_id` 在消息体内的 `MinTraj.drone_id` 字段，接收端按它过滤（`:1195-1197`）。带后缀是单机仿真才需要的做法，见 §6 |
+
+#### 那什么情况下才真的要改代码？
+
+| 需求 | 要改 C++ 吗 | 正确做法 |
+|---|---|---|
+| 6 机真机通讯 | **不要** | 只用 YAML（本包已给） |
+| 6 机**单机仿真** | **不要** | 改 launch 的 remap，给每机加话题前缀 —— 见 §6；实验室自己就是这么做的（`launch/include/advanced_param.xml:44`） |
+| 额外传点东西（状态、任务分配指令） | **不要** | 在 Multibotnet 配置里**新增**一组 send/recv 话题，planner 无感（本包的 `/race6/comm_test`、`/mbn/*_odom` 就是这么加的） |
+| 收到别机轨迹后要做**额外决策**（例如投弹同步、任务分配） | **要**（但这是**功能开发**，不是"接入 Multibotnet"） | 在 FSM 里加逻辑；那属于下一个任务，本包不含 |
+| 时间同步 | **不要** | 操作系统层用 chrony（§3）+ 本包的 `race6_time_sync.py` 验证 |
+
+#### 怎么证明实验室代码真的一行没动
+
+```bash
+git -C ~/SixBotsRace status --porcelain -- ego-planner2 MLMapping-Embedded_version FAST_LIO
+#   必须输出为空
+```
+
+`setup_six_ws.sh` 的「步骤 3.5 守卫」每次搭工作区都会替你跑这一条。
+
 ---
 
 ## 3. 时间同步（本次唯一需要"新写逻辑"的地方）
@@ -113,36 +169,52 @@ if (abs((t_now - msg->start_time).toSec()) > 0.25) {      // 0.25 s
 
 **第一层：操作系统时钟对齐（必须做，这是根本）**
 
-用 chrony，指定 0 号机当时间源，其余当客户端。每台飞机各执行：
+用 chrony，指定**物理 1 号机（drone_id 0）**当时间源，其余当客户端。每台飞机各执行：
 
 ```bash
-# ---- 0 号机（时间源）----
+# ---- 源机：物理 1 号机（192.168.66.101）----
 sudo apt install -y chrony
+# 关掉可能抢 NTP 的 systemd-timesyncd（两个 NTP 客户端会互相打架）
+sudo systemctl disable --now systemd-timesyncd 2>/dev/null || true
+sudo cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf.bak
 sudo tee /etc/chrony/chrony.conf >/dev/null <<'EOF'
 driftfile /var/lib/chrony/chrony.drift
-allow 192.168.152.0/24        # ← 改成你们飞机所在网段
-local stratum 8               # 没有外网时，自己当权威时钟
+allow 192.168.66.0/24        # ← 你们飞机所在网段（六机都是 192.168.66.x）
+local stratum 8              # 没有外网时，自己当权威时钟
 makestep 0.1 3
 rtcsync
 EOF
 sudo systemctl restart chrony
-chronyc tracking              # 看 "System time" 与 "Last offset"
+sudo systemctl enable  chrony   # ★ 开机自启（不设这行，断电重启后就不会自动对时）
+chronyc tracking                # 看 "System time" 与 "RMS offset"
 
-# ---- 1~5 号机（客户端）----
+# ---- 其余五台（客户端）----
 sudo apt install -y chrony
+sudo systemctl disable --now systemd-timesyncd 2>/dev/null || true
+sudo cp /etc/chrony/chrony.conf /etc/chrony/chrony.conf.bak
 sudo tee /etc/chrony/chrony.conf >/dev/null <<'EOF'
 driftfile /var/lib/chrony/chrony.drift
-server 192.168.152.101 iburst   # ← 改成 0 号机真实 IP
+server 192.168.66.101 iburst    # ← 源机（物理 1 号机 / drone_id 0）的 IP
 makestep 0.1 3
 rtcsync
 EOF
 sudo systemctl restart chrony
-chronyc sources -v            # 应看到 0 号机那行前面是 ^*
-chronyc tracking              # "Last offset" 应 < 1 ms
+sudo systemctl enable  chrony   # ★ 同上
+sleep 20
+chronyc sources -v              # 期望源机那一行前面是 ^*，Reach 攒到 377
+chronyc tracking                # System time / RMS offset 应在毫秒级（这就是两机时钟差）
 ```
 
-> ⚠️ 如果现场没有路由器/NTP 服务器，就靠 0 号机的 `local stratum 8` 自建。
+> ⚠️ 如果现场没有路由器/NTP 服务器，就靠源机的 `local stratum 8` 自建。
 > 关键是**六台必须互相同步到同一个源**，而不是各自跟互联网对表。
+>
+> ⚠️ **想让源机的绝对时间也准**（bag 时间戳、日志），在它的 `chrony.conf` 里加一行
+> `pool ntp.aliyun.com iburst`：有外网时就用互联网时间，没外网时自动退回 `local stratum 8`。
+> 不加也能用 —— 六台一致就够了，FSM 只比较两机之差。
+>
+> ⚠️ 每次上电（换电池/重启）后，用这三条确认一次：
+> `systemctl is-active chrony` → `chronyc tracking`（看 `System time`）→ 跑一遍
+> `race6_time_sync.py`（实测 offset，这才是最终证据）。
 
 **第二层：Multibotnet 链路上的实测与校时（本包提供的脚本）**
 
@@ -323,14 +395,16 @@ ping -c 3 192.168.152.102          # 在 0 号机上 ping 1 号机，应 0% pack
 **(b) 把真实 IP 填进配置**（**这一步不做，后面一定收不到**）
 
 ```bash
-vi ~/SixBotsRace/race6_comm/config/ground2/drone_0.yaml
-#   改这两行：
-#     drone0: '192.168.152.101'
-#     drone1: '192.168.152.102'
-
-vi ~/SixBotsRace/race6_comm/config/ground2/drone_1.yaml
-#   改同样两行（两个文件里的 IP 必须完全一致）
+# 用生成器一次重写全部配置 —— 它会同时写 config/race6/ 和 config/ground2/，
+# 并且带着"物理编号 → 软件 drone_id"的对照表打印出来
+cd ~/SixBotsRace/race6_comm
+python3 scripts/gen_race6_configs.py \
+    --ips <物理1IP>,<物理2IP>,<物理3IP>,<物理4IP>,<物理5IP>,<物理6IP>
+python3 scripts/check_config.py --all       # 必须全绿（含跨文件 IP 一致性）
 ```
+
+> ⚠️ **不要手改单个文件**：同一个别名在 8 份配置里都要一致，手改必漏。
+> 生成器会保证 race6/（6 份）与 ground2/（2 份）永远一致。
 
 **(c) 两台都装好工作区。** 推荐用 git（能保证 PC 和两台飞机是**同一个 commit**，见
 `PROJECT.md` §6）：
@@ -507,6 +581,39 @@ rostopic info /broadcast_traj_to_planner
 
 > 想把收到的别机里程计「再转发给第三台」时最容易犯这个错：**永远不要**把 recv 的
 > topic 名写成 `/mavros/local_position/odom`，那样它会被本机的发送话题再广播出去。
+
+**坑 1.5（静默失败，比坑 1 更难查）：`connect_address` 用了 `IP:` 段里没定义的别名。**
+
+```yaml
+IP:
+  drone3: '192.168.66.85'
+  drone5: '192.168.66.161'      # ← 没有 drone0
+recv_topics:
+  - topic: /broadcast_traj_to_planner
+    connect_address: drone0      # ← 这里写 drone0
+    port: 4001
+```
+
+`resolveAddress()` 找不到键时**原样返回字符串**（`topic_manager.cpp:341-352`），
+于是连接地址变成 `tcp://drone0:4001` —— ZMQ 把它当**主机名**做 DNS 解析，
+解析失败就永远连不上，**而 Multibotnet 一个错都不报**。
+症状：`send` 侧计数正常增长、`recv` 侧全是 0、日志里既没有报错也没有
+`receiving data from network`。
+
+**判别口诀：配置表里 `Receive Topics` 的 `<-` 后面必须是 IP。
+显示成一个名字（如 `<- drone0:4001`）就是别名没定义。**
+（发送侧不受影响，因为 `bind_address: self` 会被特殊处理成本机 IP。）
+
+上飞机前跑一次自检，这个坑和其他几类配置错误都能一次查出来：
+
+```bash
+rosrun race6_comm check_config.py --all
+# 或在工作区外： python3 ~/SixBotsRace/race6_comm/scripts/check_config.py --all
+```
+
+它会检查：别名是否都定义了、必填键是否齐全、`message_type` 是否用了斜杠、
+端口是否重复绑定、**发/收是否同名**（坑 1），并把每个 `recv` 真正会用的
+`tcp://地址:端口` 打印出来。
 
 **坑 2：`MinTraj` 的消息类型要写 `controller_msgs/MinTraj`（斜杠）。**
 两端都必须编译并 source 了 `controller_msgs`，因为 md5sum 随消息过网络
