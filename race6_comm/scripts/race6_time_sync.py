@@ -126,8 +126,33 @@ class PeerStats(object):
     def max_abs_offset(self):
         return max(abs(v) for v in self.offsets) if self.offsets else float("nan")
 
+    def p95_abs_offset(self):
+        """|offset| 的 95 百分位。
+
+        为什么判定要用 p95 而不是最大值：WiFi 偶发一次 600ms 抖动就会让
+        |offset| 峰值爆到几百毫秒，但时钟其实对齐得很好（均值只有几毫秒）。
+        用最大值判定 = 让一次网络抖动把整轮测试判死。
+        FSM 真正在乎的是"绝大多数时候 |dt| < 250ms"，所以用 p95 更贴近实际。
+        """
+        if not self.offsets:
+            return float("nan")
+        vals = sorted(abs(v) for v in self.offsets)
+        k = int(0.95 * (len(vals) - 1))
+        return vals[k]
+
+    def n_over(self, thr):
+        """|offset| 超过 thr 的样本数（用来看"偶发"还是"常态"）"""
+        return sum(1 for v in self.offsets if abs(v) > thr)
+
     def mean_rtt(self):
         return statistics.mean(self.rtts) if self.rtts else float("nan")
+
+    def p95_rtt(self):
+        if not self.rtts:
+            return float("nan")
+        vals = sorted(self.rtts)
+        k = int(0.95 * (len(vals) - 1))
+        return vals[k]
 
     def max_rtt(self):
         return max(self.rtts) if self.rtts else float("nan")
@@ -341,10 +366,10 @@ class TimeSyncNode(object):
                 return
             print("     （下表里的「无应答」就是这个意思）")
 
-        print("%-8s %8s %8s %12s %11s %12s %11s %11s  %s"
-              % ("对端", "应答", "本机发", "offset均值", "offset抖动", "|offset|峰值",
-                 "rtt均值", "rtt峰值", "判定"))
-        print("-" * 96)
+        print("%-8s %7s %7s %11s %10s %10s %10s %9s %9s %8s  %s"
+              % ("对端", "应答", "本机发", "offset均值", "offset抖动", "|off|p95",
+                 "|off|峰值", "超线样本", "rtt均值", "rtt峰值", "判定"))
+        print("-" * 110)
 
         worst_verdict = "PASS"
         apply_candidates = []
@@ -353,40 +378,52 @@ class TimeSyncNode(object):
             p = peers[pid]
             if p.resp_count == 0:
                 # 一个应答都没收到：本机发了 req_sent 个 REQ，它一个都没回
-                print("%-8s %8d %8d %12s %11s %12s %11s %11s  %s"
+                print("%-8s %7d %7d %11s %10s %10s %10s %9s %9s %8s  %s"
                       % ("drone_%d" % pid, 0, self.req_sent, "-", "-", "-", "-", "-",
-                         "无应答"))
+                         "-", "-", "无应答"))
                 worst_verdict = _worse(worst_verdict, "FAIL")
                 continue
 
             mo = p.mean_offset()
             so = p.std_offset()
+            xo95 = p.p95_abs_offset()
             xo = p.max_abs_offset()
+            nover = p.n_over(self.warn_offset)
             mr = p.mean_rtt()
             xr = p.max_rtt()
 
-            if xo <= self.warn_offset and xr <= 0.1:
+            # ★ 判定用 p95（不是最大值）：见 PeerStats.p95_abs_offset 的说明。
+            #   一次 WiFi 抖动不该把整轮判死；但也要求"绝大多数样本"都达标。
+            if xo95 <= self.warn_offset and mr <= 0.1:
                 verdict = "PASS"
-            elif xo <= self.fatal_offset:
+            elif xo95 <= self.fatal_offset:
                 verdict = "WARN"
             else:
                 verdict = "FAIL"
             worst_verdict = _worse(worst_verdict, verdict)
 
-            print("%-8s %8d %8d %10.2f ms %9.2f ms %10.2f ms %8.2f ms %8.2f ms  %s"
+            print("%-8s %7d %7d %9.2f ms %8.2f ms %8.2f ms %8.2f ms %9d %7.2f ms %6.2f ms  %s"
                   % ("drone_%d" % pid, p.resp_count, self.req_sent,
-                     mo * 1e3, so * 1e3, xo * 1e3, mr * 1e3, xr * 1e3, verdict))
+                     mo * 1e3, so * 1e3, xo95 * 1e3, xo * 1e3, nover,
+                     mr * 1e3, xr * 1e3, verdict))
 
             apply_candidates.append((pid, p))
 
-        print("-" * 96)
+        print("-" * 110)
         print("  说明：offset = 对端钟 - 本机钟（正是 ego_replan_fsm.cpp:1223 判据里的差值）")
-        print("        「应答/本机发」两个数相等说明对端每个探测包都回了；")
-        print("        对端少回几个不影响 offset，但说明链路有丢包，值得追。")
-        print("  判定线：PASS ≤ %.0f ms ｜ WARN ≤ %.0f ms（会刷告警）｜ FAIL > %.0f ms"
-              % (self.warn_offset * 1e3, self.fatal_offset * 1e3, self.fatal_offset * 1e3))
+        print("        「应答/本机发」两个数相等说明对端每个探测包都回了。")
+        print("        ★ 判定看的是 |off|p95（95 百分位）而不是峰值 —— WiFi 偶发一次几百 ms 的")
+        print("          抖动会把峰值拉爆，但时钟其实是好的（看 offset均值 就知道）。")
+        print("          「超线样本」= |offset| 超过 %.0f ms 的个数：个位数=偶发抖动，成片=真没同步。"
+              % (self.warn_offset * 1e3))
+        print("  判定线：|off|p95 ≤ %.0f ms 且 rtt均值 ≤ 100 ms → PASS ｜ ≤ %.0f ms → WARN ｜ 更大 → FAIL"
+              % (self.warn_offset * 1e3, self.fatal_offset * 1e3))
         print("  注意：|offset| > 10 s 时，轨迹会被 FSM 直接丢弃"
               "（ego_replan_fsm.cpp:1231-1236）")
+        print("  ★ 这一列判定的是【本机 ↔ 对端】这条往返路径的观测质量，【不是谁的钟更准】：")
+        print("    两台的 CPU 负载、无线环境不同，同一对飞机在两台上得出不同判定是正常的。")
+        print("    FSM 真正用的是 race6_mintraj_test 的 dt 列（dt ≈ |offset| + 单程延迟），")
+        print("    只要那边的 |dt| < 250 ms，这一列是 WARN 也不影响实际协同。")
         print("  本轮总判定：%s" % worst_verdict)
         print("=" * 96)
 
@@ -477,22 +514,29 @@ class TimeSyncNode(object):
                     print("  ❌ drone_%d: 无应答" % pid)
                     all_pass = False
                     continue
+                xo95 = p.p95_abs_offset()
                 xo = p.max_abs_offset()
-                good = xo <= self.warn_offset
+                nover = p.n_over(self.warn_offset)
+                good = xo95 <= self.warn_offset
                 all_pass = all_pass and good
                 print("  %s drone_%d: %d 个样本, offset 均值 %+.2f ms, 抖动 %.2f ms, "
-                      "峰值 %.2f ms, rtt 均值 %.2f ms"
+                      "p95 %.2f ms, 峰值 %.2f ms (超线 %d 个), rtt 均值 %.2f ms"
                       % ("✅" if good else "⚠️", pid, p.resp_count,
-                         p.mean_offset() * 1e3, p.std_offset() * 1e3, xo * 1e3,
-                         p.mean_rtt() * 1e3))
+                         p.mean_offset() * 1e3, p.std_offset() * 1e3, xo95 * 1e3,
+                         xo * 1e3, nover, p.mean_rtt() * 1e3))
             print("")
             if all_pass:
-                print("  ✅ 时间同步达标：全部对端 |offset| ≤ %.0f ms。" % (self.warn_offset * 1e3))
+                print("  ✅ 时间同步达标：全部对端 |offset| 的 p95 ≤ %.0f ms。" % (self.warn_offset * 1e3))
                 print("     下一步：rosrun race6_comm race6_comm_test.py --self-id %d --peers %s"
                       % (self.self_id, ",".join(str(x) for x in sorted(peers.keys()))))
             else:
-                print("  ⚠️ 未达标。若 offset 恒定但偏大 → 两机系统时钟没对齐，先做时钟同步；")
-                print("     若 offset 抖动大而 rtt 也大 → 是网络问题，换信道/拉近距离/关压缩。")
+                print("  ⚠️ 未达标。分诊：")
+                print("     * offset均值 小（几 ms）但 p95 大 + rtt峰值 大 → 【网络抖动】，不是时钟问题：")
+                print("         ① 关 WiFi 省电：sudo iw dev <网卡> set power_save off")
+                print("         ② iw dev <网卡> link 看信号强度/速率；换干净的 5GHz 信道")
+                print("         ③ 少跑点东西（planner/mavmap/建图 都吃 CPU，会饿死接收线程）")
+                print("     * offset均值 本身就大（几十~几百 ms）→ 【时钟没对齐】，回阶段三做 chrony")
+                print("     * rtt均值 就很大（>50 ms）→ 距离/遮挡/信道问题")
         print("=" * 96)
 
 

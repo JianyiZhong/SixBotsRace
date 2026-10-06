@@ -142,9 +142,15 @@ std::unordered_map<std::string, Statistics> TopicManager::getStatistics() const 
     }
 
     // 收集接收话题统计
+    //   ★ key 必须带上【对端地址:端口】。原因：多个对端会把数据发布到【同一个本地话题名】
+    //     （例如 5 个对端都发到 /race6/timesync_rx、/broadcast_traj_to_planner）。
+    //     只按话题名做 key 会让它们互相覆盖，统计里只剩最后一个 —— 表现为 "recv=0"，
+    //     看着像"完全没收到"，其实数据是通的，纯粹是显示假象。
     for (const auto& recv_topic : recv_topics_) {
-        stats["recv:" + recv_topic->config.topic] =
-            recv_topic->transport->getStatistics();
+        std::string key = "recv:" + recv_topic->config.topic +
+                          " <- " + recv_topic->config.address + ":" +
+                          std::to_string(recv_topic->config.port);
+        stats[key] = recv_topic->transport->getStatistics();
     }
 
     return stats;

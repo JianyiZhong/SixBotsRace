@@ -509,6 +509,8 @@ rostopic info /broadcast_traj_to_planner
 | 丢包率高但 rtt 小 | 无线链路质量 | 换信道/靠近；把 `compression` 关掉；把 `max_frequency` 降下来 |
 | 一开就网络打满 / CPU 100% | **发和收用了同一个话题名** → 广播风暴 | 严格保持 `_tx` / `_rx` 分开，见 §7 坑 1 |
 | 脚本报 `无法 import controller_msgs` | `controller_msgs` 没编或没 source | `rospack find controller_msgs`；`cd ~/six_ws && catkin_make && source devel/setup.bash` |
+| **`rostopic echo` 每次都收到东西，以为"一直在收"** | **Multibotnet 的接收发布者是 latched（锁存）**：`message_factory.cpp:88` 的 `advertise(..., true)`。新订阅者一连上就会拿到"最后一条"，哪怕几小时没有新消息 | 判断"当前在不在收"**只能用 `rostopic hz`**；`echo` 只适合看内容。若两次 `echo -n1` 拿到的 `traj_id`/`nsecs` 完全一样，就是锁存重放 |
+| **统计里 `recv=0` 但数据其实在收** | （已修）旧版 `getStatistics()` 用**话题名**做 key，而多个对端会发布到同一个本地话题名 → 5 个 transport 互相覆盖只留最后一个 | 见 §7 坑 1.6；已改为按 `话题名 <- 对端地址:端口` 分行 |
 
 ---
 
@@ -614,6 +616,28 @@ rosrun race6_comm check_config.py --all
 它会检查：别名是否都定义了、必填键是否齐全、`message_type` 是否用了斜杠、
 端口是否重复绑定、**发/收是否同名**（坑 1），并把每个 `recv` 真正会用的
 `tcp://地址:端口` 打印出来。
+
+**坑 1.6（会骗人的诊断）：Multibotnet 的接收发布者是 latched，`rostopic echo` 不能用来判断"在不在收"。**
+
+```cpp
+// message_factory.cpp:88
+ros::Publisher pub = msg->advertise(nh_, topic, queue_size, true);   // 第 4 参 = latch
+```
+
+后果：**任何新订阅者一连上，立刻收到"最后一条"消息**（哪怕已经几小时没有新数据）。
+所以 `rostopic echo -n1 /broadcast_traj_to_planner` **永远能返回东西**，
+很容易误判成"一直在收"。识别方法：连着 echo 两次，如果 `traj_id` / `nsecs`
+**完全一样**，就是锁存重放，不是新数据。
+
+| 想看什么 | 用什么 |
+|---|---|
+| 消息**内容**对不对（字段、drone_id） | `rostopic echo`（会被 latch 重放，但不影响看内容） |
+| **当前有没有在收**（活性/频率） | **`rostopic hz`**（唯一可靠） |
+| 各对端分别收了多少（累计） | Multibotnet 的 `Topic Statistics`（**已修**：按 `话题名 <- 对端:端口` 分行） |
+
+> 旧版 `getStatistics()` 用话题名做 key，而**多个对端会发布到同一个本地话题名**
+> （5 个对端 → 5 个 transport → 一个 key）→ 互相覆盖只留最后一个，
+> 表现为 `recv=0` 的假象。已在 `topic_manager.cpp` 修成按对端分行。
 
 **坑 2：`MinTraj` 的消息类型要写 `controller_msgs/MinTraj`（斜杠）。**
 两端都必须编译并 source 了 `controller_msgs`，因为 md5sum 随消息过网络

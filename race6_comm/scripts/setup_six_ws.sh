@@ -127,6 +127,9 @@ echo "   实验室代码: $LAB"
 echo "   模式     : $MODE"
 echo "   放置方式 : $METHOD"
 [ "$NO_LAB" = "1" ] && echo "   --no-lab : 是（只放两个新包，不碰工作区里原有的实验室代码）"
+echo "   说明     : 工作区只是放包的壳（里面全是软链，真源在仓库）；"
+echo "              PC 上生成 \$HOME/six_ws；飞机上用 WS=\$HOME/chen_ws + --no-lab 复用 chen_ws"
+echo "              （一台机器只保留一个被 source 的工作区，详见 测试全链路.md §0.3）"
 echo "=============================================================="
 
 if [ "$IN_REPO" = "0" ]; then
@@ -194,8 +197,12 @@ fi
 # ---------------------------------------------------------------------
 step "1. 初始化 catkin 工作区"
 mkdir -p "$SRC"
-if [ -f "$WS/.catkin_workspace" ]; then
-  ok "已是 catkin 工作区"
+# ★ 判据必须用 src/CMakeLists.txt（catkin_init_workspace 生成的 toplevel 入口），
+#   不能用 .catkin_workspace —— 后者是 catkin_make【首次编译时】才创建的。
+#   用错判据会踩这个坑：工作区处于"已 init、但还没编译过"的状态时被误判成未初始化
+#   → 再 init 一次 → catkin_init_workspace 报 "File ... already exists" 并失败退出。
+if [ -f "$SRC/CMakeLists.txt" ]; then
+  ok "已是 catkin 工作区（src/CMakeLists.txt 已存在）"
 else
   ( cd "$SRC" && catkin_init_workspace ) && ok "已初始化（src/CMakeLists.txt 已生成）" \
     || { fail "catkin_init_workspace 失败"; exit 1; }
@@ -480,6 +487,13 @@ step "5. catkin_make"
 # shellcheck disable=SC1091
 source /opt/ros/noetic/setup.bash || { fail "source ROS 失败"; exit 1; }
 cd "$WS" || exit 1
+
+# .catkin_workspace 是 catkin_make 用来认定"工作区根目录"的标记文件（首次编译时生成）。
+# 手工清理过 ~/six_ws 之后它可能缺失，个别版本的 catkin_make 会因此拒绝运行 —— 补一个空文件（无害）。
+if [ ! -f "$WS/.catkin_workspace" ]; then
+  touch "$WS/.catkin_workspace"
+  ok "补建缺失的 .catkin_workspace（空标记文件）"
+fi
 
 # 上次 configure 失败会留下坏缓存（例如 CMAKE_HOME_DIRECTORY 不是本机路径）
 if [ -f "$WS/build/CMakeCache.txt" ]; then
