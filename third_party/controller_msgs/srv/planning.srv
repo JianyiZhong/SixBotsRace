@@ -1,0 +1,11 @@
+# request planner
+
+uint16 num
+float32[] x
+float32[] y
+float32[] z
+float32[3] start_vel
+float32[3] end_vel
+---
+bool success
+controller_msgs/Trajectory trajectory

@@ -1,0 +1,56 @@
+# =====================================================================
+# SixBotsRace / deps.lock
+#
+# 作用：把"这份代码是从哪些上游、哪个版本来的"钉死。
+#       比赛现场出问题时，最怕的就是"PC 上跑得通、飞机上跑不通"，
+#       而九成原因是两边代码版本不一致。这个文件就是用来排除这一条的。
+#
+# 用法：
+#   * 每次同步实验室代码 / 换 Multibotnet 版本后，更新本文件并提交
+#   * 换电脑、换飞机、赛后复现时，先照本文件核对版本
+#   * 核对命令见每节的 "verify"
+#
+# 带 TODO 的字段表示我（助手）无法从本机推断，需要你填一次。
+# =====================================================================
+
+[lab]
+# 实验室最新代码（项目的主体代码，我们只读不改）
+name            = SixBotsRace (实验室最新代码)
+source_kind     = snapshot          # snapshot = 一次拿到的快照；git = 有仓库可 pull
+local_path      = /home/zjy/SixBotsRace
+# 这份快照是什么时候、从哪拿的（填一次，后面同步时更新）
+obtained_at     = 20260929              # 例：2026-02-14
+obtained_from   = UAV（ZhaoAn）              # 例：师兄U盘 / 实验室内网 / 某仓库URL
+upstream_url    = None              # 实验室官方仓库；没有就写 none
+upstream_commit = None              # 有官方仓库就填 commit hash；没有写 none
+# 我们把它提交进本仓库时，落在 main 上的那个 commit
+vendored_in_main = 205f1ad41536a0d1513224d877f9c4936b73c105   # "add lab code"
+# verify: git -C /home/zjy/SixBotsRace log --oneline -1 main
+# verify: git -C /home/zjy/SixBotsRace status --porcelain -- ego-planner2 MLMapping-Embedded_version FAST_LIO
+#         （必须为空！实验室代码零改动是本项目的硬规矩）
+
+[multibotnet]
+# 跨机通讯本体（第三方，Apache-2.0，我们要把它部署到每台飞机上）
+name            = Multibotnet
+upstream_url    = https://github.com/SWUST-ICAA/Multibotnet
+version         = v4.1.2
+commit          = TODO              # verify: git -C <multibotnet仓库> rev-parse HEAD
+local_source    = /home/zjy/chen_ws2/src/multibotnet   # 组装工作区时的来源
+license         = Apache-2.0
+note            = v4.1.2 是 release 版本，很少变；改了版本必须同步更新本行并重跑通信自测
+
+[workspace]
+# 工作区是【生成物】，不入库，随时可由脚本重建
+path            = /home/zjy/six_ws
+kind            = generated         # 由 race6_comm/scripts/setup_six_ws.sh 生成
+rebuild_minimal = bash <仓库根>/race6_comm/scripts/setup_six_ws.sh --minimal
+rebuild_full    = bash <仓库根>/race6_comm/scripts/setup_six_ws.sh --full
+note            = 永远不要手工改 ~/six_ws/src 里的东西；要改就改仓库里的真源
+
+[deploy]
+# 上飞机的部署单位
+unit            = race6_comm 包 + multibotnet 包
+target_layout   = <飞机>:~/six_ws/  （用 git clone 仓库后跑 setup_six_ws.sh）
+ros             = ROS Noetic / Ubuntu 20.04 / 机载 Orange Pi
+apt_deps        = libzmq3-dev, libyaml-cpp-dev, liblz4-dev, zlib1g-dev,
+                  ros-noetic-topic-tools, ros-noetic-mavros-msgs, ros-noetic-rostest

@@ -96,7 +96,9 @@ REPO_GUESS="$(cd "$RC_DIR/.." && pwd)"                 # 仓库根（race6_comm 
 
 if [ -n "${LAB:-}" ]; then
   IN_REPO=1                                            # 用户显式指定，尊重
-elif [ -d "$REPO_GUESS/ego-planner2/src/planner" ]; then
+elif [ -d "$REPO_GUESS/race6_comm/scripts" ] || [ -f "$REPO_GUESS/PROJECT.md" ]; then
+  # ★ 不再用 ego-planner2 判断"是否在仓库里"：仓库现在只放通讯模块，
+  #   实验室代码已移出（参考副本放在 ~/lab_code_new，不进这个仓库）。
   LAB="$REPO_GUESS"; IN_REPO=1
 else
   LAB="${HOME}/SixBotsRace"; IN_REPO=0
@@ -302,9 +304,6 @@ if [ "$NO_LAB" = "1" ]; then
   # 否则同名包重复，catkin_make 会报 "Multiple packages found with the same name"。
   step "2.2 跳过实验室代码（--no-lab）"
   ok "只放了 multibotnet + race6_comm；实验室代码用工作区里原有的那份"
-  echo "       请确认工作区里已经有 controller_msgs（race6_comm 依赖它）："
-  echo "         rospack find controller_msgs"
-  echo "         rosmsg show controller_msgs/MinTraj | head    # 必须有输出"
 else
   step "2.2 放置实验室代码"
   PLANNER="$LAB/ego-planner2/src/planner"
@@ -312,16 +311,46 @@ else
     # controller_msgs：MinTraj 定义在这里，通信测试就要它
     place_file "$PLANNER/controller_msgs" "$SRC/planner/controller_msgs" "controller_msgs（MinTraj）"
   else
-    fail "找不到 $PLANNER"
-    exit 1
+    # 仓库里已经没有实验室代码了（新布局）→ 自动退化成 --no-lab，不要报错退出
+    warn "仓库里没有 $PLANNER（实验室代码已移出仓库），自动按 --no-lab 处理"
+    NO_LAB=1
+    if [ "$MODE" = "full" ]; then
+      warn "你用的是 --full（要在 PC 上搭仿真），但没有实验室代码可放。"
+      echo "       要搭 PC 仿真请显式指路： LAB=$HOME/lab_code_new bash $0 --full"
+    fi
   fi
 
-  if [ "$MODE" = "full" ]; then
+  if [ "$MODE" = "full" ] && [ -d "$PLANNER" ]; then
     for p in traj_utils path_searching plan_env traj_opt plan_manage drone_detect; do
       place_file "$PLANNER/$p" "$SRC/planner/$p" "$p"
     done
     place_file "$LAB/MLMapping-Embedded_version" "$SRC/MLMapping-Embedded_version" "MLMapping-Embedded_version"
     place_file "$LAB/FAST_LIO"                   "$SRC/FAST_LIO"                   "FAST_LIO"
+  fi
+fi
+
+# ---------------------------------------------------------------------
+# 2.2b controller_msgs：race6_comm 的编译依赖，必须有人提供
+#   MinTraj 的定义就在这个包里 —— 它是【通讯接口契约】，所以即使仓库不再带
+#   实验室代码，也建议把它作为 third_party/controller_msgs 留在仓库里。
+#   飞机上 chen_ws 本来就有 → 检测到就跳过（放第二份会导致"同名包重复"编译失败）。
+# ---------------------------------------------------------------------
+if [ "$NO_LAB" = "1" ] || [ ! -d "$LAB/ego-planner2/src/planner" ]; then
+  EXISTING_CM="$(find "$SRC" -maxdepth 5 -name package.xml 2>/dev/null \
+                 | xargs grep -l '<name>controller_msgs</name>' 2>/dev/null | head -1)"
+  if [ -n "$EXISTING_CM" ]; then
+    ok "工作区里已经有 controller_msgs，跳过（$EXISTING_CM）"
+  elif [ -d "$REPO_GUESS/third_party/controller_msgs" ]; then
+    place_file "$REPO_GUESS/third_party/controller_msgs" "$SRC/third_party/controller_msgs" \
+               "controller_msgs（仓库自带的接口定义）"
+  else
+    fail "工作区里没有 controller_msgs，仓库里也没有 third_party/controller_msgs"
+    echo "     race6_comm 编译需要它（controller_msgs/MinTraj.msg 就是通讯协议本身）。补上："
+    echo "       mkdir -p $REPO_GUESS/third_party"
+    echo "       rsync -a <真机实验室代码>/ego-planner2/src/planner/controller_msgs/ \\"
+    echo "             $REPO_GUESS/third_party/controller_msgs/"
+    echo "     然后再跑一次本脚本。"
+    exit 1
   fi
 fi
 
@@ -403,7 +432,16 @@ fi
 # ---------------------------------------------------------------------
 step "3.5 守卫：实验室代码是否被改动过"
 LAB_DIRS="ego-planner2 MLMapping-Embedded_version FAST_LIO"
-if [ -d "$LAB/.git" ]; then
+if [ ! -d "$LAB/ego-planner2" ] && [ ! -d "$LAB/MLMapping-Embedded_version" ] && [ ! -d "$LAB/FAST_LIO" ]; then
+  # 新布局：实验室代码已移出仓库，这条守卫没有对象了。
+  # 改为检查"仓库里有没有意外残留的实验室目录"（有的话说明没清干净）。
+  ok "仓库里已不含实验室代码（新布局：通讯模块独立仓库）"
+  echo "       实验室代码参考副本：$HOME/lab_code_new（不进本仓库）"
+  echo "       版本对齐靠 $LAB/deps.lock 记录；同步实验室代码时更新它。"
+  if [ -d "$LAB/.git" ]; then
+    ok "当前仓库 commit：$(git -C "$LAB" rev-parse --short HEAD 2>/dev/null) ($(git -C "$LAB" rev-parse --abbrev-ref HEAD 2>/dev/null))"
+  fi
+elif [ -d "$LAB/.git" ]; then
   DIRTY="$(git -C "$LAB" status --porcelain -- $LAB_DIRS 2>/dev/null)"
   if [ -z "$DIRTY" ]; then
     ok "实验室代码干净（$LAB 下这三个子目录没有未提交改动）"

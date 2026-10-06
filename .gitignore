@@ -1,0 +1,55 @@
+# =====================================================================
+# SixBotsRace / .gitignore
+#
+# 原则：
+#   1) 实验室代码（ego-planner2/、MLMapping-Embedded_version/、FAST_LIO/）
+#      和你的代码（race6_comm/）**都要入库**，不要忽略。
+#   2) 只忽略【生成物】和【系统/编辑器垃圾】。
+#   3) 工作区 ~/six_ws 在仓库外面，它的 build//devel/ 本来就不在这个仓库里；
+#      下面几条是防止有人误在仓库根目录跑 catkin_make。
+# =====================================================================
+
+# ---- catkin / ROS 生成物（万一在仓库根目录跑过 catkin_make）----
+/build/
+/devel/
+/logs/
+.catkin_workspace
+# 只在仓库根目录生效：防止误在根目录 catkin_init_workspace
+# （注意别写成 src/CMakeLists.txt，那会连 ego-planner2/src/CMakeLists.txt 一起匹配）
+/src/CMakeLists.txt
+
+# ---- 编译中间产物（如果直接在包目录里 cmake 过）----
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.o
+*.so
+*.a
+*.pyc
+__pycache__/
+
+# ---- 从 Windows 复制过来的文件常带这个垃圾后缀 ----
+*:Zone.Identifier
+desktop.ini
+Thumbs.db
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ---- 大数据文件：点云/日志/图像，别把仓库撑爆 ----
+*.pcd
+*.bag
+*.ply
+FAST_LIO/PCD/
+FAST_LIO/Log/
+MLMapping-Embedded_version/bag/
+
+# ---- 文档 ----
+race6_comm/真机双机部署步骤.md
+lab_code_new/
