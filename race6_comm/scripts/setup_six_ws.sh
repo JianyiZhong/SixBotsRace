@@ -289,7 +289,34 @@ place_race6_comm() {
 #   最后才退回开发机上的 ~/chen_ws2。把 multibotnet 放进仓库后，
 #   一台飞机只需要 `git clone` 一次就全部齐了，离线也能部署。
 if [ -e "$SRC/multibotnet" ]; then
-  ok "multibotnet 已在工作区里，跳过（$SRC/multibotnet）"
+  # ★ 这里必须检查"是不是软链、指向哪里"。踩过的坑：
+  #   早期部署（或 --copy）在工作区里留下了一份【真实副本】multibotnet，
+  #   之后 `git pull` 更新的是【仓库里的 third_party/multibotnet】，
+  #   而 catkin_make 编译的是那份旧副本 —— 表现为
+  #     "脚本是新的、multibotnet 二进制是旧的"（例如统计格式没变、改了代码行为不变）。
+  #   这种不一致极难察觉，所以这里必须拦下来。
+  if [ -L "$SRC/multibotnet" ]; then
+    TGT="$(readlink -f "$SRC/multibotnet" 2>/dev/null || true)"
+    WANT=""
+    [ -n "$MBN_SRC" ] && WANT="$(readlink -f "$MBN_SRC" 2>/dev/null || true)"
+    if [ -n "$WANT" ] && [ "$TGT" != "$WANT" ]; then
+      fail "multibotnet 的软链指向别处，不是仓库里那份："
+      echo "       现在指向: $TGT"
+      echo "       仓库那份: $WANT"
+      echo "       → git pull 更新的是仓库那份，编译用的却是另一份，会出现【代码是新的、二进制是旧的】"
+      echo "       修： rm $SRC/multibotnet && 重跑本脚本"
+      exit 1
+    fi
+    ok "multibotnet 已软链到仓库，跳过（$SRC/multibotnet -> $TGT）"
+  else
+    fail "multibotnet 是【真实副本】而不是软链：$SRC/multibotnet"
+    echo "       → git pull 不会更新它，你会一直在编译旧代码。"
+    echo "         典型症状：改了 multibotnet 源码但行为不变（例如 Topic Statistics 的格式还是老的）。"
+    echo "       确认它只是副本后清掉再重跑："
+    echo "         rm -rf $SRC/multibotnet"
+    echo "         bash $RC_DIR/scripts/setup_six_ws.sh $MODE $( [ "$NO_LAB" = 1 ] && echo --no-lab )"
+    exit 1
+  fi
 elif [ -n "$MBN_SRC" ] && [ -d "$MBN_SRC" ]; then
   place_file "$MBN_SRC" "$SRC/multibotnet" "multibotnet（来自 $MBN_SRC）"
 else

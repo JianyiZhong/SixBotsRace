@@ -13,6 +13,7 @@
 #      本脚本会拿【本机真实 IP】和配置里 drone<id> 那一行对一下，不一致直接拒绝启动。
 #
 # 用法：
+#   bash race6_launch.sh 3 --race          # ★ 比赛日：只起通信，不带任何测试脚本
 #   bash race6_launch.sh 1                 # 物理 1 号机：drone_id=0, 期望对端 1,2,3,4,5
 #   bash race6_launch.sh 6                 # 物理 6 号机：drone_id=5, 期望对端 0,1,2,3,4
 #   bash race6_launch.sh 3 --pair=5        # ★ 只和物理 5 号机对测（期望对端只有 drone4）
@@ -20,6 +21,11 @@
 #   bash race6_launch.sh 3 --dry-run       # 只打印将要执行的命令，不启动
 #   bash race6_launch.sh 1 --force         # 跳过"本机 IP 与配置不符"的检查
 #   bash race6_launch.sh 1 --config-only   # 等价 --dry-run
+#
+# ★ --race 与不加 --race 的区别：
+#     不加（联调模式）→ 起 comm_ground_test.launch：Multibotnet + 三个测试脚本，
+#                        其中 race6_mintraj_test 会发【假轨迹】，只适合地面联调
+#     --race（比赛模式）→ 起 multibotnet_node.launch：只起 Multibotnet，零测试节点
 #
 # ★ 两台对测一定要用 --pair。不带它的话脚本会期望另外 5 台都在，
 #   没开机的那 4 台会被判成"完全没有收到" → 明明通了却报 FAIL。
@@ -38,12 +44,14 @@ DRY_RUN=0
 FORCE=0
 PAIR_PHYS=""          # --pair=N：本次只和【物理 N 号机】对测
 PEERS_OVERRIDE=""     # --peers=0,1,2：直接指定期望对端（软件编号）
+RACE=0                # --race：比赛模式，只起通信（不带任何测试脚本）
 
 PHYS=""
 for a in "$@"; do
   case "$a" in
     --dry-run|--config-only) DRY_RUN=1 ;;
     --force)                 FORCE=1 ;;
+    --race)                  RACE=1 ;;
     --pair=*)                PAIR_PHYS="${a#--pair=}" ;;
     --peers=*)               PEERS_OVERRIDE="${a#--peers=}" ;;
     -h|--help)               sed -n '2,34p' "$0"; exit 0 ;;
@@ -52,9 +60,10 @@ for a in "$@"; do
 done
 
 if [ -z "$PHYS" ]; then
-  fail "用法： bash $0 <飞机物理编号 1~6> [--pair=<对测的物理编号>] [--dry-run] [--force]"
-  echo "  例： bash $0 3 --pair=5      # 物理 3 号机，只和物理 5 号机对测"
-  echo "      bash $0 3               # 物理 3 号机，期望其余 5 台都在"
+  fail "用法： bash $0 <飞机物理编号 1~6> [--race] [--pair=<对测的物理编号>] [--dry-run] [--force]"
+  echo "  ★ 比赛日： bash $0 3 --race          # 只起通信，不带任何测试脚本（推荐）"
+  echo "  联调时  ： bash $0 3 --pair=5        # 物理 3 号机，只和物理 5 号机对测"
+  echo "            bash $0 3                 # 物理 3 号机，期望其余 5 台都在"
   exit 2
 fi
 case "$PHYS" in
@@ -161,16 +170,31 @@ else
 fi
 
 # ---- 3) 启动 ----
-CMD="roslaunch race6_comm comm_ground_test.launch drone_id:=$ID peers:=$PEERS config:=$CONFIG"
+if [ "$RACE" = "1" ]; then
+  # ★ 比赛模式：只起 Multibotnet，不起任何测试脚本。
+  #   为什么必须这样：comm_ground_test.launch 里的 race6_mintraj_test 会往
+  #   /broadcast_traj_from_planner 发【假轨迹】，对端 FSM 会把它当成"本机的真实轨迹"
+  #   参与避碰计算 —— 比赛日绝不能带着它飞。
+  CMD="roslaunch race6_comm multibotnet_node.launch drone_id:=$ID config:=$CONFIG"
+else
+  CMD="roslaunch race6_comm comm_ground_test.launch drone_id:=$ID peers:=$PEERS config:=$CONFIG"
+fi
 
 echo
 echo "将要执行："
 echo "  $CMD"
 echo
 echo "提醒："
+if [ "$RACE" = "1" ]; then
+  echo "  * 【比赛模式】只起了 Multibotnet，没有任何测试脚本（peers 在此模式下无意义）"
+  echo "  * 想看时间同步监控，另开一个终端跑："
+  echo "        rosrun race6_comm race6_time_sync.py --self-id $ID --peers $PEERS"
+else
+  echo "  ⚠️ 【联调模式】会同时起三个测试脚本，其中 race6_mintraj_test 会发【假轨迹】！"
+  echo "     比赛日请改用： bash $0 $PHYS --race"
+fi
 echo "  * 里程计那一路要有数据，得另开一个终端起 mavros（不要加 &，否则 Ctrl+C 停不掉）："
 echo "        roslaunch mavros px4.launch"
-echo "  * 时间同步要达标，先按 真机双机部署步骤.md 阶段 3 配好 chrony"
 echo
 
 if [ "$DRY_RUN" = "1" ]; then
