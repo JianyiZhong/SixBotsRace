@@ -456,6 +456,45 @@ cd ~/six_ws && source devel/setup.bash
 roslaunch race6_comm comm_ground_test.launch drone_id:=1 peers:=0
 ```
 
+> 也可以用脚本（自动算 `drone_id` / `peers`，并校验本机 IP 与配置一致）：
+> ```bash
+> bash ~/SixBotsRace/race6_comm/scripts/race6_launch.sh 1 --pair=2   # 物理 1 号机
+> bash ~/SixBotsRace/race6_comm/scripts/race6_launch.sh 2 --pair=1   # 物理 2 号机
+> ```
+
+**(f) ★ 正式比赛前的双机 / 三机测试：起通信要和比赛一样**
+
+上面 (e) 是**地面联调**，它带的 `race6_mintraj_test` 会往 `/broadcast_traj_from_planner`
+发**假轨迹**，对端 FSM 会当成真实轨迹参与避碰 —— 联调可以，**带桨/带飞绝对不行**。
+
+赛前测试的正确起法是加 `--race`（`--race` 的通信节点与比赛日**完全相同**，
+只是多留一个只读的 `race6_time_sync` 当"对端有没有来"的体温计）：
+
+```bash
+# 双机（物理 1 ↔ 物理 3），两台各一个终端：
+bash ~/SixBotsRace/race6_comm/scripts/race6_launch.sh 1 --race --pair=3
+bash ~/SixBotsRace/race6_comm/scripts/race6_launch.sh 3 --race --pair=1
+
+# 三机（物理 1、2、3）：
+bash ~/SixBotsRace/race6_comm/scripts/race6_launch.sh 1 --race --peers=1,2
+bash ~/SixBotsRace/race6_comm/scripts/race6_launch.sh 2 --race --peers=0,2
+bash ~/SixBotsRace/race6_comm/scripts/race6_launch.sh 3 --race --peers=0,1
+
+# 正式比赛（纯通信，一个测试节点都不起）：
+bash ~/SixBotsRace/race6_comm/scripts/race6_launch.sh <物理编号> --race
+```
+
+| 起了什么 | 地面联调（不加 `--race`） | 赛前双机/三机（`--race --pair/--peers`） | 比赛（`--race`） |
+|---|---|---|---|
+| Multibotnet | 起 | 起（**与比赛同一份**） | 起 |
+| `race6_time_sync` | 起 | 起（**只测量**） | 不起 |
+| `race6_comm_test` | 起 | 不起 | 不起 |
+| `race6_mintraj_test` | ⚠️ **起，会发假轨迹** | 不起 ★ | 不起 |
+
+> 判断"对端到底通没通"只看 `rostopic hz /race6/timesync_rx`：**一直在动**才是通的。
+> **别用 `rostopic echo`**：Multibotnet 的接收发布器是 latched 的
+> （`message_factory.cpp:88` 的 `advertise(..., true)`），对端早就停了它也照样能 echo 出内容（坑 1.6）。
+
 ### 5.3 期望结果（逐项对照，这就是"通过"的定义）
 
 | # | 检查项 | 在哪儿看 | 期望 |
@@ -530,8 +569,13 @@ rostopic info /broadcast_traj_to_planner
    会起 `px4ctrl_node` 并自动执行 `takeoff.sh`，后者往
    `/px4ctrl/takeoff_land` 发 `takeoff_land_cmd: 1`）。
    本包只在飞机稳定悬停之后，把 §5.2(e) 那条 `comm_ground_test.launch` 再跑一遍。
+   > ⚠️ 但如果是**带桨/带飞**状态下复测，不要用 (e)，用 §5.2(f) 的
+   > `race6_launch.sh <编号> --race --peers=<对端>` —— 它和比赛日同一套通信节点，
+   > 不会发假轨迹。真要让 `race6_comm_test` / `race6_mintraj_test` 上飞机测，
+   > 必须先把桨卸掉。
 2. **顺序**：先让两台的 Multibotnet + 时间同步在地面跑起来并 PASS，
-   再起飞；起飞后重跑 `race6_comm_test` / `race6_mintraj_test` 看指标是否劣化。
+   再起飞；起飞后重跑 `race6_comm_test` / `race6_mintraj_test` 看指标是否劣化
+   （**只能在卸桨状态下**；带飞时用 §5.2(f) 的 `rostopic hz /race6/timesync_rx` 代替）。
 3. **要重点观察的两件事**：
    - 悬停时 CPU 被建图/控制占满，Multibotnet 的 `Topic Statistics` 里
      `msg/s` 是否还稳（掉到预期的一半以下说明线程被饿死，
